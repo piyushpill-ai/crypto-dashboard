@@ -1,0 +1,12 @@
+{
+  "name": "crypto-dashboard",
+  "version": "1.0.0",
+  "description": "BTC/AUD spread dashboard across Australian exchanges",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

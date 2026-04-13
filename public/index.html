@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BTC/AUD Spread Dashboard</title>
+    <style>
+      :root {
+        --bg-0: #0b0d12;
+        --bg-1: #11141c;
+        --bg-2: #161a24;
+        --line: #232836;
+        --text: #e6e9f2;
+        --muted: #8089a0;
+        --accent: #7c5cff;
+        --accent-2: #00d1b2;
+        --good: #2ee6a6;
+        --warn: #ffb547;
+        --bad: #ff5c7a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family:
+          'Inter',
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
+        background:
+          radial-gradient(
+            1200px 700px at 10% -10%,
+            rgba(124, 92, 255, 0.18),
+            transparent 60%
+          ),
+          radial-gradient(
+            900px 600px at 120% 10%,
+            rgba(0, 209, 178, 0.12),
+            transparent 60%
+          ),
+          var(--bg-0);
+        color: var(--text);
+        min-height: 100vh;
+        padding: 40px 24px 80px;
+      }
+      .wrap {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      header {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 28px;
+        flex-wrap: wrap;
+      }
+      h1 {
+        margin: 0;
+        font-size: 28px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+      h1 .dot {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        background: var(--accent-2);
+        border-radius: 50%;
+        margin-right: 10px;
+        box-shadow: 0 0 12px var(--accent-2);
+        animation: pulse 1.8s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.4;
+        }
+      }
+      .sub {
+        color: var(--muted);
+        margin-top: 4px;
+        font-size: 14px;
+      }
+      .controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .amount {
+        display: flex;
+        align-items: center;
+        background: var(--bg-2);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 8px 12px;
+      }
+      .amount span {
+        color: var(--muted);
+        margin-right: 6px;
+        font-size: 13px;
+      }
+      .amount input {
+        background: transparent;
+        border: none;
+        color: var(--text);
+        outline: none;
+        font-size: 15px;
+        width: 90px;
+        font-family: inherit;
+      }
+      button {
+        font-family: inherit;
+        cursor: pointer;
+        border: 1px solid var(--line);
+        background: var(--bg-2);
+        color: var(--text);
+        padding: 10px 16px;
+        border-radius: 10px;
+        font-size: 14px;
+        font-weight: 500;
+        transition: all 0.15s ease;
+      }
+      button:hover:not(:disabled) {
+        border-color: var(--accent);
+        background: #1b1f2c;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .fetch-all {
+        background: linear-gradient(135deg, var(--accent), #5a3fff);
+        border: none;
+        font-weight: 600;
+      }
+      .fetch-all:hover:not(:disabled) {
+        background: linear-gradient(135deg, #8a6cff, #6a4fff);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 18px;
+      }
+      .card {
+        background: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.02),
+          transparent
+        ),
+          var(--bg-1);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 20px;
+        position: relative;
+        overflow: hidden;
+        transition: border-color 0.2s ease;
+      }
+      .card::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: 16px;
+        padding: 1px;
+        background: linear-gradient(135deg, transparent, transparent);
+        mask:
+          linear-gradient(#000 0 0) content-box,
+          linear-gradient(#000 0 0);
+        mask-composite: exclude;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      }
+      .card.loaded::before {
+        background: linear-gradient(
+          135deg,
+          rgba(124, 92, 255, 0.35),
+          rgba(0, 209, 178, 0.25)
+        );
+        opacity: 1;
+      }
+      .card-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 16px;
+      }
+      .card h2 {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 600;
+      }
+      .card .note {
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 2px;
+      }
+      .spread-pill {
+        background: var(--bg-2);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--muted);
+      }
+      .spread-pill.good {
+        color: var(--good);
+        border-color: rgba(46, 230, 166, 0.3);
+      }
+      .spread-pill.warn {
+        color: var(--warn);
+        border-color: rgba(255, 181, 71, 0.3);
+      }
+      .spread-pill.bad {
+        color: var(--bad);
+        border-color: rgba(255, 92, 122, 0.3);
+      }
+      .rows {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px 14px;
+        margin-bottom: 16px;
+      }
+      .row {
+        display: flex;
+        flex-direction: column;
+      }
+      .row .k {
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .row .v {
+        font-variant-numeric: tabular-nums;
+        font-size: 15px;
+        font-weight: 500;
+        margin-top: 2px;
+      }
+      .row .v.bid {
+        color: var(--good);
+      }
+      .row .v.ask {
+        color: var(--bad);
+      }
+      .btc-line {
+        border-top: 1px solid var(--line);
+        padding-top: 12px;
+        margin-bottom: 14px;
+      }
+      .btc-line .k {
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .btc-line .v {
+        font-variant-numeric: tabular-nums;
+        font-size: 22px;
+        font-weight: 600;
+        margin-top: 2px;
+        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      .card-foot {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+      }
+      .timestamp {
+        color: var(--muted);
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
+      .card button.fetch {
+        background: var(--bg-2);
+        border: 1px solid var(--line);
+        font-size: 13px;
+        padding: 7px 12px;
+      }
+      .card button.fetch:hover:not(:disabled) {
+        border-color: var(--accent);
+      }
+      .card.loading .fetch {
+        pointer-events: none;
+      }
+      .spinner {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border: 2px solid var(--line);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+        vertical-align: -1px;
+        margin-right: 6px;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .err {
+        color: var(--bad);
+        font-size: 12px;
+        margin-top: 8px;
+        font-family: 'SF Mono', Menlo, monospace;
+      }
+      .empty .v {
+        color: var(--muted);
+      }
+      footer {
+        margin-top: 36px;
+        color: var(--muted);
+        font-size: 12px;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div>
+          <h1><span class="dot"></span>BTC/AUD Spread Dashboard</h1>
+          <div class="sub">
+            Live bid/ask across Australian exchanges with public APIs.
+          </div>
+        </div>
+        <div class="controls">
+          <label class="amount">
+            <span>A$</span>
+            <input id="amount" type="number" value="500" min="1" step="10" />
+          </label>
+          <button id="fetch-all" class="fetch-all">Fetch all</button>
+        </div>
+      </header>
+
+      <div id="grid" class="grid"></div>
+
+      <footer>
+        Prices pulled on demand from each exchange's public endpoint. Retail
+        brokers (CoinSpot/Swyftx) bake spread into their quote; order-book
+        venues show the true top-of-book.
+      </footer>
+    </div>
+
+    <script>
+      const grid = document.getElementById('grid');
+      const amountInput = document.getElementById('amount');
+      const fetchAllBtn = document.getElementById('fetch-all');
+
+      const fmtAud = (n) =>
+        n.toLocaleString('en-AU', {
+          style: 'currency',
+          currency: 'AUD',
+          maximumFractionDigits: 2,
+        });
+      const fmtBtc = (n) => n.toFixed(8) + ' BTC';
+      const fmtPct = (n) => n.toFixed(3) + '%';
+      const fmtTime = (ts) => new Date(ts).toLocaleTimeString('en-AU');
+
+      function spreadClass(pct) {
+        if (pct < 0.3) return 'good';
+        if (pct < 1.0) return 'warn';
+        return 'bad';
+      }
+
+      function renderCard(ex) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.dataset.id = ex.id;
+        card.innerHTML = `
+          <div class="card-head">
+            <div>
+              <h2>${ex.label}</h2>
+              <div class="note">${ex.note}</div>
+            </div>
+            <div class="spread-pill" data-spread>—</div>
+          </div>
+          <div class="rows">
+            <div class="row empty"><div class="k">Bid</div><div class="v bid" data-bid>—</div></div>
+            <div class="row empty"><div class="k">Ask</div><div class="v ask" data-ask>—</div></div>
+            <div class="row empty"><div class="k">Last</div><div class="v" data-last>—</div></div>
+            <div class="row empty"><div class="k">Abs. spread</div><div class="v" data-abs>—</div></div>
+          </div>
+          <div class="btc-line">
+            <div class="k">For A$<span data-amount>500</span></div>
+            <div class="v" data-btc>— BTC</div>
+          </div>
+          <div class="card-foot">
+            <div class="timestamp" data-ts>Never fetched</div>
+            <button class="fetch" data-fetch>Fetch spread</button>
+          </div>
+          <div class="err" data-err style="display:none"></div>
+        `;
+        card.querySelector('[data-fetch]').addEventListener('click', () =>
+          fetchOne(ex.id)
+        );
+        return card;
+      }
+
+      async function fetchOne(id) {
+        const card = grid.querySelector(`[data-id="${id}"]`);
+        const btn = card.querySelector('[data-fetch]');
+        const err = card.querySelector('[data-err]');
+        card.classList.add('loading');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span>Fetching';
+        err.style.display = 'none';
+
+        try {
+          const r = await fetch(`/api/spread/${id}`);
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || 'fetch failed');
+
+          const absSpread = d.ask - d.bid;
+          const pctSpread = (absSpread / d.bid) * 100;
+          const amount = +amountInput.value || 0;
+          const btcAmt = amount / d.ask;
+
+          card.querySelector('[data-bid]').textContent = fmtAud(d.bid);
+          card.querySelector('[data-ask]').textContent = fmtAud(d.ask);
+          card.querySelector('[data-last]').textContent = fmtAud(d.last);
+          card.querySelector('[data-abs]').textContent = fmtAud(absSpread);
+          card.querySelector('[data-amount]').textContent = amount;
+          card.querySelector('[data-btc]').textContent = fmtBtc(btcAmt);
+          card.querySelector('[data-ts]').textContent =
+            'Updated ' + fmtTime(d.ts);
+
+          const pill = card.querySelector('[data-spread]');
+          pill.textContent = fmtPct(pctSpread);
+          pill.className = 'spread-pill ' + spreadClass(pctSpread);
+
+          card
+            .querySelectorAll('.row.empty')
+            .forEach((r) => r.classList.remove('empty'));
+          card.classList.add('loaded');
+        } catch (e) {
+          err.textContent = e.message;
+          err.style.display = 'block';
+        } finally {
+          card.classList.remove('loading');
+          btn.disabled = false;
+          btn.textContent = 'Refresh';
+        }
+      }
+
+      async function fetchAll() {
+        fetchAllBtn.disabled = true;
+        fetchAllBtn.innerHTML = '<span class="spinner"></span>Fetching all';
+        const ids = [...grid.querySelectorAll('.card')].map(
+          (c) => c.dataset.id
+        );
+        await Promise.all(ids.map(fetchOne));
+        fetchAllBtn.disabled = false;
+        fetchAllBtn.textContent = 'Refresh all';
+      }
+
+      amountInput.addEventListener('input', () => {
+        grid.querySelectorAll('.card.loaded').forEach((card) => {
+          const ask = parseFloat(
+            card
+              .querySelector('[data-ask]')
+              .textContent.replace(/[^0-9.]/g, '')
+          );
+          const amount = +amountInput.value || 0;
+          card.querySelector('[data-amount]').textContent = amount;
+          if (ask)
+            card.querySelector('[data-btc]').textContent = fmtBtc(
+              amount / ask
+            );
+        });
+      });
+
+      fetchAllBtn.addEventListener('click', fetchAll);
+
+      (async () => {
+        const r = await fetch('/api/exchanges');
+        const list = await r.json();
+        list.forEach((ex) => grid.appendChild(renderCard(ex)));
+      })();
+    </script>
+  </body>
+</html>
