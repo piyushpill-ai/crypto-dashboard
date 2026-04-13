@@ -68,23 +68,12 @@ const exchanges = {
     note: 'Retail price (spread baked in)',
     fetch: async () => {
       const r = await fetchJSON('https://api.swyftx.com.au/markets/info/basic/BTC/');
+      const btc = Array.isArray(r) ? r[0] : r;
       return {
-        bid: +r.sell,
-        ask: +r.buy,
-        last: (+r.sell + +r.buy) / 2,
+        bid: +btc.sell,
+        ask: +btc.buy,
+        last: (+btc.sell + +btc.buy) / 2,
       };
-    },
-  },
-  coinbase: {
-    label: 'Coinbase',
-    note: 'Order book top (Advanced Trade)',
-    fetch: async () => {
-      const r = await fetchJSON(
-        'https://api.exchange.coinbase.com/products/BTC-AUD/book?level=1'
-      );
-      const bid = +r.bids[0][0];
-      const ask = +r.asks[0][0];
-      return { bid, ask, last: (bid + ask) / 2 };
     },
   },
 };
