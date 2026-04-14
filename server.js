@@ -3,10 +3,11 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
-function fetchJSON(url) {
+function fetchJSON(url, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
+    const headers = { 'User-Agent': 'crypto-dashboard/1.0', ...extraHeaders };
     https
-      .get(url, { headers: { 'User-Agent': 'crypto-dashboard/1.0' } }, (res) => {
+      .get(url, { headers }, (res) => {
         let data = '';
         res.on('data', (c) => (data += c));
         res.on('end', () => {
@@ -63,6 +64,16 @@ const exchanges = {
       return { bid: +d.bidPx, ask: +d.askPx, last: +d.last };
     },
   },
+  pepperstone: {
+    label: 'Pepperstone Crypto',
+    note: 'Order book top (WebSocket)',
+    fetch: async () => {
+      const book = await getPepperstoneBook();
+      const bid = Math.max(...book.bids.map((b) => b[0]));
+      const ask = Math.min(...book.asks.map((a) => a[0]));
+      return { bid, ask, last: (bid + ask) / 2 };
+    },
+  },
   swyftx: {
     label: 'Swyftx',
     note: 'Retail price (spread baked in)',
@@ -77,6 +88,70 @@ const exchanges = {
     },
   },
 };
+
+let pepperstoneBook = null;
+let pepperstoneWs = null;
+
+function connectPepperstoneWs() {
+  const ws = new WebSocket('wss://nodes.pepperstonecrypto.com/ws');
+  pepperstoneWs = ws;
+  ws.addEventListener('open', () => {
+    ws.send(
+      JSON.stringify({
+        method: 'subscribe',
+        events: ['OB.BTC_AUD'],
+      })
+    );
+  });
+  ws.addEventListener('message', (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (
+        msg.method === 'stream' &&
+        msg.event === 'OB.BTC_AUD' &&
+        msg.data &&
+        Array.isArray(msg.data.bids) &&
+        Array.isArray(msg.data.asks)
+      ) {
+        pepperstoneBook = {
+          bids: msg.data.bids,
+          asks: msg.data.asks,
+          ts: Date.now(),
+        };
+      }
+    } catch {}
+  });
+  ws.addEventListener('close', () => {
+    pepperstoneWs = null;
+    setTimeout(connectPepperstoneWs, 2000);
+  });
+  ws.addEventListener('error', () => {
+    try {
+      ws.close();
+    } catch {}
+  });
+}
+
+function getPepperstoneBook() {
+  if (pepperstoneBook && Date.now() - pepperstoneBook.ts < 10_000) {
+    return Promise.resolve(pepperstoneBook);
+  }
+  if (!pepperstoneWs || pepperstoneWs.readyState > 1) connectPepperstoneWs();
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const iv = setInterval(() => {
+      if (pepperstoneBook && pepperstoneBook.ts >= start) {
+        clearInterval(iv);
+        resolve(pepperstoneBook);
+      } else if (Date.now() - start > 5000) {
+        clearInterval(iv);
+        reject(new Error('Pepperstone WS timeout'));
+      }
+    }, 100);
+  });
+}
+
+connectPepperstoneWs();
 
 const server = http.createServer(async (req, res) => {
   if (req.url === '/' || req.url === '/index.html') {
