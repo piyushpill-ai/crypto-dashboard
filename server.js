@@ -100,7 +100,7 @@ const exchanges = {
   kraken: {
     label: 'Kraken',
     note: 'Order book top',
-    takerFeeBps: 26,
+    takerFeeBps: 80,
     feeBakedIn: false,
     fetch: async () => {
       const r = await fetchJSON(
