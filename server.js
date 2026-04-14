@@ -22,12 +22,61 @@ function fetchJSON(url, extraHeaders = {}) {
   });
 }
 
+function fetchPepperstoneOneShot() {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket('wss://nodes.pepperstonecrypto.com/ws');
+    const to = setTimeout(() => {
+      try {
+        ws.close();
+      } catch {}
+      reject(new Error('Pepperstone WS timeout'));
+    }, 8000);
+    ws.addEventListener('open', () => {
+      ws.send(
+        JSON.stringify({ method: 'subscribe', events: ['OB.BTC_AUD'] })
+      );
+    });
+    ws.addEventListener('message', (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (
+          msg.method === 'stream' &&
+          msg.event === 'OB.BTC_AUD' &&
+          msg.data &&
+          msg.data.bids?.length &&
+          msg.data.asks?.length
+        ) {
+          const bid = Math.max(...msg.data.bids.map((b) => b[0]));
+          const ask = Math.min(...msg.data.asks.map((a) => a[0]));
+          clearTimeout(to);
+          try {
+            ws.close();
+          } catch {}
+          resolve({ bid, ask, last: (bid + ask) / 2 });
+        }
+      } catch {}
+    });
+    ws.addEventListener('error', () => {
+      clearTimeout(to);
+      reject(new Error('Pepperstone WS error'));
+    });
+  });
+}
+
+// Fees are TAKER fees in basis points (1 bp = 0.01%).
+// feeBakedIn = true means the quoted ask already includes the venue's markup,
+// so we should NOT add taker fee on top — doing so would double-count.
+// Values below reflect public rate cards; update as needed.
 const exchanges = {
   coinspot: {
     label: 'CoinSpot',
-    note: 'Retail price (spread baked in)',
+    note: 'Retail price (fee baked into spread)',
+    takerFeeBps: 0,
+    feeBakedIn: true,
     fetch: async () => {
-      const r = await fetchJSON('https://www.coinspot.com.au/pubapi/v2/latest/btc');
+      const r = await fetchJSON(
+        'https://www.coinspot.com.au/pubapi/v2/latest/btc'
+      );
       const p = r.prices;
       return { bid: +p.bid, ask: +p.ask, last: +p.last };
     },
@@ -35,6 +84,8 @@ const exchanges = {
   independentreserve: {
     label: 'Independent Reserve',
     note: 'Order book top',
+    takerFeeBps: 50,
+    feeBakedIn: false,
     fetch: async () => {
       const r = await fetchJSON(
         'https://api.independentreserve.com/Public/GetMarketSummary?primaryCurrencyCode=Xbt&secondaryCurrencyCode=Aud'
@@ -49,8 +100,12 @@ const exchanges = {
   kraken: {
     label: 'Kraken',
     note: 'Order book top',
+    takerFeeBps: 26,
+    feeBakedIn: false,
     fetch: async () => {
-      const r = await fetchJSON('https://api.kraken.com/0/public/Ticker?pair=XBTAUD');
+      const r = await fetchJSON(
+        'https://api.kraken.com/0/public/Ticker?pair=XBTAUD'
+      );
       const k = r.result[Object.keys(r.result)[0]];
       return { bid: +k.b[0], ask: +k.a[0], last: +k.c[0] };
     },
@@ -58,8 +113,12 @@ const exchanges = {
   okx: {
     label: 'OKX',
     note: 'Order book top',
+    takerFeeBps: 10,
+    feeBakedIn: false,
     fetch: async () => {
-      const r = await fetchJSON('https://www.okx.com/api/v5/market/ticker?instId=BTC-AUD');
+      const r = await fetchJSON(
+        'https://www.okx.com/api/v5/market/ticker?instId=BTC-AUD'
+      );
       const d = r.data[0];
       return { bid: +d.bidPx, ask: +d.askPx, last: +d.last };
     },
@@ -67,18 +126,19 @@ const exchanges = {
   pepperstone: {
     label: 'Pepperstone Crypto',
     note: 'Order book top (WebSocket)',
-    fetch: async () => {
-      const book = await getPepperstoneBook();
-      const bid = Math.max(...book.bids.map((b) => b[0]));
-      const ask = Math.min(...book.asks.map((a) => a[0]));
-      return { bid, ask, last: (bid + ask) / 2 };
-    },
+    takerFeeBps: 10,
+    feeBakedIn: false,
+    fetch: fetchPepperstoneOneShot,
   },
   swyftx: {
     label: 'Swyftx',
-    note: 'Retail price (spread baked in)',
+    note: 'Retail price (fee baked into spread)',
+    takerFeeBps: 0,
+    feeBakedIn: true,
     fetch: async () => {
-      const r = await fetchJSON('https://api.swyftx.com.au/markets/info/basic/BTC/');
+      const r = await fetchJSON(
+        'https://api.swyftx.com.au/markets/info/basic/BTC/'
+      );
       const btc = Array.isArray(r) ? r[0] : r;
       return {
         bid: +btc.sell,
@@ -89,69 +149,21 @@ const exchanges = {
   },
 };
 
-let pepperstoneBook = null;
-let pepperstoneWs = null;
-
-function connectPepperstoneWs() {
-  const ws = new WebSocket('wss://nodes.pepperstonecrypto.com/ws');
-  pepperstoneWs = ws;
-  ws.addEventListener('open', () => {
-    ws.send(
-      JSON.stringify({
-        method: 'subscribe',
-        events: ['OB.BTC_AUD'],
-      })
-    );
-  });
-  ws.addEventListener('message', (e) => {
-    try {
-      const msg = JSON.parse(e.data);
-      if (
-        msg.method === 'stream' &&
-        msg.event === 'OB.BTC_AUD' &&
-        msg.data &&
-        Array.isArray(msg.data.bids) &&
-        Array.isArray(msg.data.asks)
-      ) {
-        pepperstoneBook = {
-          bids: msg.data.bids,
-          asks: msg.data.asks,
-          ts: Date.now(),
-        };
-      }
-    } catch {}
-  });
-  ws.addEventListener('close', () => {
-    pepperstoneWs = null;
-    setTimeout(connectPepperstoneWs, 2000);
-  });
-  ws.addEventListener('error', () => {
-    try {
-      ws.close();
-    } catch {}
-  });
+function effectivePrice(ex, ask) {
+  return ex.feeBakedIn ? ask : ask * (1 + ex.takerFeeBps / 10_000);
 }
 
-function getPepperstoneBook() {
-  if (pepperstoneBook && Date.now() - pepperstoneBook.ts < 10_000) {
-    return Promise.resolve(pepperstoneBook);
-  }
-  if (!pepperstoneWs || pepperstoneWs.readyState > 1) connectPepperstoneWs();
-  return new Promise((resolve, reject) => {
-    const start = Date.now();
-    const iv = setInterval(() => {
-      if (pepperstoneBook && pepperstoneBook.ts >= start) {
-        clearInterval(iv);
-        resolve(pepperstoneBook);
-      } else if (Date.now() - start > 5000) {
-        clearInterval(iv);
-        reject(new Error('Pepperstone WS timeout'));
-      }
-    }, 100);
-  });
+async function runSample(id) {
+  const ex = exchanges[id];
+  if (!ex) throw new Error(`unknown exchange: ${id}`);
+  const data = await ex.fetch();
+  return {
+    ...data,
+    takerFeeBps: ex.takerFeeBps,
+    feeBakedIn: ex.feeBakedIn,
+    effectiveAsk: effectivePrice(ex, data.ask),
+  };
 }
-
-connectPepperstoneWs();
 
 const server = http.createServer(async (req, res) => {
   if (req.url === '/' || req.url === '/index.html') {
@@ -165,26 +177,41 @@ const server = http.createServer(async (req, res) => {
       id,
       label: v.label,
       note: v.note,
+      takerFeeBps: v.takerFeeBps,
+      feeBakedIn: v.feeBakedIn,
     }));
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify(list));
     return;
   }
 
-  const m = req.url.match(/^\/api\/spread\/([\w-]+)$/);
-  if (m) {
-    const ex = exchanges[m[1]];
+  if (req.url === '/api/history') {
+    const csvPath = path.join(__dirname, 'data', 'samples.csv');
     res.setHeader('Content-Type', 'application/json');
-    if (!ex) {
-      res.statusCode = 404;
-      res.end(JSON.stringify({ error: 'unknown exchange' }));
+    if (!fs.existsSync(csvPath)) {
+      res.end(JSON.stringify({ samples: [] }));
       return;
     }
+    const rows = fs.readFileSync(csvPath, 'utf-8').trim().split('\n');
+    const header = rows.shift().split(',');
+    const samples = rows.map((line) => {
+      const cols = line.split(',');
+      const obj = {};
+      header.forEach((h, i) => (obj[h] = cols[i]));
+      return obj;
+    });
+    res.end(JSON.stringify({ samples }));
+    return;
+  }
+
+  const m = req.url.match(/^\/api\/spread\/([\w-]+)$/);
+  if (m) {
+    res.setHeader('Content-Type', 'application/json');
     try {
-      const data = await ex.fetch();
+      const data = await runSample(m[1]);
       res.end(JSON.stringify({ ...data, ts: Date.now() }));
     } catch (e) {
-      res.statusCode = 502;
+      res.statusCode = m[1] in exchanges ? 502 : 404;
       res.end(JSON.stringify({ error: e.message }));
     }
     return;
@@ -194,7 +221,11 @@ const server = http.createServer(async (req, res) => {
   res.end();
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Crypto dashboard running: http://localhost:${PORT}`);
-});
+module.exports = { exchanges, runSample, effectivePrice };
+
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  server.listen(PORT, () => {
+    console.log(`Crypto dashboard running: http://localhost:${PORT}`);
+  });
+}

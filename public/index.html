@@ -188,6 +188,59 @@
         );
         opacity: 1;
       }
+      .card.winner::before {
+        background: linear-gradient(
+          135deg,
+          rgba(46, 230, 166, 0.65),
+          rgba(0, 209, 178, 0.5)
+        );
+        opacity: 1;
+      }
+      .card.winner {
+        box-shadow: 0 0 32px rgba(46, 230, 166, 0.18);
+      }
+      .winner-badge {
+        position: absolute;
+        top: 14px;
+        right: 14px;
+        background: linear-gradient(135deg, var(--good), var(--accent-2));
+        color: #0b0d12;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding: 3px 8px;
+        border-radius: 999px;
+        display: none;
+      }
+      .card.winner .winner-badge {
+        display: block;
+      }
+      .summary {
+        background: var(--bg-1);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px 18px;
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      .summary .verdict {
+        font-size: 14px;
+        color: var(--muted);
+      }
+      .summary .verdict strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+      .summary .hist {
+        font-size: 12px;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
       .card-head {
         display: flex;
         justify-content: space-between;
@@ -348,12 +401,19 @@
         </div>
       </header>
 
+      <div id="summary" class="summary" style="display:none">
+        <div class="verdict" id="verdict">—</div>
+        <div class="hist" id="hist">—</div>
+      </div>
+
       <div id="grid" class="grid"></div>
 
       <footer>
-        Prices pulled on demand from each exchange's public endpoint. Retail
-        brokers (CoinSpot/Swyftx) bake spread into their quote; order-book
-        venues show the true top-of-book.
+        Effective price = ask × (1 + taker fee) for order-book venues; retail
+        brokers (CoinSpot/Swyftx) already bake their fee into the quote, so
+        no fee is added. Winner = lowest effective price for the input amount.
+        Samples collected every 4h via GitHub Actions and committed to
+        <code>data/samples.csv</code> in the repo.
       </footer>
     </div>
 
@@ -382,7 +442,13 @@
         const card = document.createElement('div');
         card.className = 'card';
         card.dataset.id = ex.id;
+        card.dataset.fee = ex.takerFeeBps;
+        card.dataset.baked = ex.feeBakedIn ? '1' : '0';
+        const feeLabel = ex.feeBakedIn
+          ? 'baked in'
+          : fmtPct(ex.takerFeeBps / 100);
         card.innerHTML = `
+          <div class="winner-badge">Cheapest</div>
           <div class="card-head">
             <div>
               <h2>${ex.label}</h2>
@@ -393,11 +459,11 @@
           <div class="rows">
             <div class="row empty"><div class="k">Bid</div><div class="v bid" data-bid>—</div></div>
             <div class="row empty"><div class="k">Ask</div><div class="v ask" data-ask>—</div></div>
-            <div class="row empty"><div class="k">Last</div><div class="v" data-last>—</div></div>
-            <div class="row empty"><div class="k">Abs. spread</div><div class="v" data-abs>—</div></div>
+            <div class="row empty"><div class="k">Taker fee</div><div class="v">${feeLabel}</div></div>
+            <div class="row empty"><div class="k">Effective ask</div><div class="v" data-eff>—</div></div>
           </div>
           <div class="btc-line">
-            <div class="k">For A$<span data-amount>500</span></div>
+            <div class="k">For A$<span data-amount>500</span> (after fee)</div>
             <div class="v" data-btc>— BTC</div>
           </div>
           <div class="card-foot">
@@ -429,12 +495,12 @@
           const absSpread = d.ask - d.bid;
           const pctSpread = (absSpread / d.bid) * 100;
           const amount = +amountInput.value || 0;
-          const btcAmt = amount / d.ask;
+          const btcAmt = amount / d.effectiveAsk;
 
+          card.dataset.effective = d.effectiveAsk;
           card.querySelector('[data-bid]').textContent = fmtAud(d.bid);
           card.querySelector('[data-ask]').textContent = fmtAud(d.ask);
-          card.querySelector('[data-last]').textContent = fmtAud(d.last);
-          card.querySelector('[data-abs]').textContent = fmtAud(absSpread);
+          card.querySelector('[data-eff]').textContent = fmtAud(d.effectiveAsk);
           card.querySelector('[data-amount]').textContent = amount;
           card.querySelector('[data-btc]').textContent = fmtBtc(btcAmt);
           card.querySelector('[data-ts]').textContent =
@@ -448,6 +514,7 @@
             .querySelectorAll('.row.empty')
             .forEach((r) => r.classList.remove('empty'));
           card.classList.add('loaded');
+          markWinner();
         } catch (e) {
           err.textContent = e.message;
           err.style.display = 'block';
@@ -469,18 +536,62 @@
         fetchAllBtn.textContent = 'Refresh all';
       }
 
+      function markWinner() {
+        const cards = [...grid.querySelectorAll('.card.loaded')];
+        if (cards.length < 2) return;
+        cards.forEach((c) => c.classList.remove('winner'));
+        const sorted = cards
+          .map((c) => ({ card: c, eff: +c.dataset.effective }))
+          .sort((a, b) => a.eff - b.eff);
+        sorted[0].card.classList.add('winner');
+
+        const summary = document.getElementById('summary');
+        const verdict = document.getElementById('verdict');
+        const winner = sorted[0];
+        const next = sorted[1];
+        const delta = ((next.eff - winner.eff) / winner.eff) * 100;
+        const label = winner.card.querySelector('h2').textContent;
+        const nextLabel = next.card.querySelector('h2').textContent;
+        verdict.innerHTML = `Cheapest right now: <strong>${label}</strong> at ${fmtAud(winner.eff)} — ${delta.toFixed(3)}% below ${nextLabel}`;
+        summary.style.display = 'flex';
+      }
+
+      async function loadHistory() {
+        try {
+          const r = await fetch('/api/history');
+          const d = await r.json();
+          if (!d.samples.length) return;
+          const byTs = {};
+          for (const s of d.samples) {
+            (byTs[s.timestamp] ||= []).push(s);
+          }
+          const ts = Object.keys(byTs).sort();
+          const wins = {};
+          let totalBatches = 0;
+          for (const t of ts) {
+            const batch = byTs[t];
+            if (batch.length < 2) continue;
+            totalBatches++;
+            const w = batch.reduce((a, b) =>
+              +a.effective_ask < +b.effective_ask ? a : b
+            );
+            wins[w.exchange] = (wins[w.exchange] || 0) + 1;
+          }
+          const hist = document.getElementById('hist');
+          const top = Object.entries(wins).sort((a, b) => b[1] - a[1])[0];
+          hist.textContent = `Historical: ${top[0]} cheapest ${top[1]}/${totalBatches} samples (${((top[1] / totalBatches) * 100).toFixed(0)}%)`;
+          document.getElementById('summary').style.display = 'flex';
+        } catch {}
+      }
+
       amountInput.addEventListener('input', () => {
         grid.querySelectorAll('.card.loaded').forEach((card) => {
-          const ask = parseFloat(
-            card
-              .querySelector('[data-ask]')
-              .textContent.replace(/[^0-9.]/g, '')
-          );
+          const eff = +card.dataset.effective;
           const amount = +amountInput.value || 0;
           card.querySelector('[data-amount]').textContent = amount;
-          if (ask)
+          if (eff)
             card.querySelector('[data-btc]').textContent = fmtBtc(
-              amount / ask
+              amount / eff
             );
         });
       });
@@ -491,6 +602,7 @@
         const r = await fetch('/api/exchanges');
         const list = await r.json();
         list.forEach((ex) => grid.appendChild(renderCard(ex)));
+        loadHistory();
       })();
     </script>
   </body>
