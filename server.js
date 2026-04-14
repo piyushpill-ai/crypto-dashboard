@@ -69,10 +69,10 @@ function fetchPepperstoneOneShot() {
 // Values below reflect public rate cards; update as needed.
 const exchanges = {
   coinspot: {
-    label: 'CoinSpot',
-    note: 'Retail price (fee baked into spread)',
-    takerFeeBps: 0,
-    feeBakedIn: true,
+    label: 'CoinSpot Markets',
+    note: 'Order book top (Markets product, not Instant Buy)',
+    takerFeeBps: 10,
+    feeBakedIn: false,
     fetch: async () => {
       const r = await fetchJSON(
         'https://www.coinspot.com.au/pubapi/v2/latest/btc'
@@ -131,8 +131,8 @@ const exchanges = {
     fetch: fetchPepperstoneOneShot,
   },
   swyftx: {
-    label: 'Swyftx',
-    note: 'Retail price (fee baked into spread)',
+    label: 'Swyftx (Standard)',
+    note: 'Retail price — ~1% spread baked in. Pro tier needs auth.',
     takerFeeBps: 0,
     feeBakedIn: true,
     fetch: async () => {
