@@ -69,21 +69,8 @@ function fetchPepperstoneOneShot() {
 // Values below reflect public rate cards; update as needed.
 const exchanges = {
   coinspot: {
-    label: 'CoinSpot Markets',
-    note: 'Order book (Markets product) — 0.10% fee',
-    takerFeeBps: 10,
-    feeBakedIn: false,
-    fetch: async () => {
-      const r = await fetchJSON(
-        'https://www.coinspot.com.au/pubapi/v2/latest/btc'
-      );
-      const p = r.prices;
-      return { bid: +p.bid, ask: +p.ask, last: +p.last };
-    },
-  },
-  coinspot_instant: {
     label: 'CoinSpot Instant Buy',
-    note: 'Retail one-click — 1% fee (derived from Markets ask)',
+    note: 'Retail one-click — 1% fee',
     takerFeeBps: 100,
     feeBakedIn: false,
     fetch: async () => {
