@@ -113,7 +113,7 @@ const exchanges = {
   okx: {
     label: 'OKX',
     note: 'Order book top',
-    takerFeeBps: 10,
+    takerFeeBps: 70,
     feeBakedIn: false,
     fetch: async () => {
       const r = await fetchJSON(
