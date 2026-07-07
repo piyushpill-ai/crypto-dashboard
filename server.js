@@ -81,6 +81,20 @@ const exchanges = {
       return { bid: +p.bid, ask: +p.ask, last: +p.last };
     },
   },
+  digitalsurge: {
+    label: 'Digital Surge',
+    note: 'Retail broker — spread baked into price, + 0.5% trading fee on top (standard tier)',
+    takerFeeBps: 50,
+    feeBakedIn: false,
+    fetch: async () => {
+      const r = await fetchJSON(
+        'https://digitalsurge.com.au/api/public/broker/ticker/'
+      );
+      const btc = r.BTC;
+      // buy = what you pay (ask), sell = what you receive (bid); spread is already in these.
+      return { bid: +btc.sell, ask: +btc.buy, last: +btc.last };
+    },
+  },
   independentreserve: {
     label: 'Independent Reserve',
     note: 'Order book top',
