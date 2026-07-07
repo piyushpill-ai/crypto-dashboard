@@ -22,7 +22,10 @@ function fetchJSON(url, extraHeaders = {}) {
   });
 }
 
-function fetchPepperstoneOneShot() {
+// One-shot Pepperstone order-book snapshot over WebSocket. Resolves with the
+// full { bids, asks } arrays (each entry [price, size]); callers derive either
+// the top-of-book quote or the whole depth ladder from it.
+function fetchPepperstoneOrderBook() {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket('wss://nodes.pepperstonecrypto.com/ws');
     const to = setTimeout(() => {
@@ -46,13 +49,11 @@ function fetchPepperstoneOneShot() {
           msg.data.bids?.length &&
           msg.data.asks?.length
         ) {
-          const bid = Math.max(...msg.data.bids.map((b) => b[0]));
-          const ask = Math.min(...msg.data.asks.map((a) => a[0]));
           clearTimeout(to);
           try {
             ws.close();
           } catch {}
-          resolve({ bid, ask, last: (bid + ask) / 2 });
+          resolve({ bids: msg.data.bids, asks: msg.data.asks });
         }
       } catch {}
     });
@@ -61,6 +62,30 @@ function fetchPepperstoneOneShot() {
       reject(new Error('Pepperstone WS error'));
     });
   });
+}
+
+async function fetchPepperstoneOneShot() {
+  const { bids, asks } = await fetchPepperstoneOrderBook();
+  const bid = Math.max(...bids.map((b) => +b[0]));
+  const ask = Math.min(...asks.map((a) => +a[0]));
+  return { bid, ask, last: (bid + ask) / 2 };
+}
+
+// Normalize a raw order book into sorted, cleaned [price, volume] ladders:
+// bids high→low, asks low→high, capped to the top `cap` levels near the touch.
+function normalizeDepth(bids, asks, cap = 200) {
+  const clean = (rows) =>
+    rows
+      .map(([p, v]) => [+p, +v])
+      .filter(([p, v]) => p > 0 && v > 0);
+  return {
+    bids: clean(bids)
+      .sort((a, b) => b[0] - a[0])
+      .slice(0, cap),
+    asks: clean(asks)
+      .sort((a, b) => a[0] - b[0])
+      .slice(0, cap),
+  };
 }
 
 // Fees are TAKER fees in basis points (1 bp = 0.01%).
@@ -110,6 +135,15 @@ const exchanges = {
         last: +r.LastPrice,
       };
     },
+    depthFetch: async () => {
+      const r = await fetchJSON(
+        'https://api.independentreserve.com/Public/GetOrderBook?primaryCurrencyCode=Xbt&secondaryCurrencyCode=Aud'
+      );
+      return normalizeDepth(
+        r.BuyOrders.map((o) => [o.Price, o.Volume]),
+        r.SellOrders.map((o) => [o.Price, o.Volume])
+      );
+    },
   },
   kraken: {
     label: 'Kraken',
@@ -122,6 +156,13 @@ const exchanges = {
       );
       const k = r.result[Object.keys(r.result)[0]];
       return { bid: +k.b[0], ask: +k.a[0], last: +k.c[0] };
+    },
+    depthFetch: async () => {
+      const r = await fetchJSON(
+        'https://api.kraken.com/0/public/Depth?pair=XBTAUD&count=100'
+      );
+      const k = r.result[Object.keys(r.result)[0]];
+      return normalizeDepth(k.bids, k.asks);
     },
   },
   okx: {
@@ -136,6 +177,13 @@ const exchanges = {
       const d = r.data[0];
       return { bid: +d.bidPx, ask: +d.askPx, last: +d.last };
     },
+    depthFetch: async () => {
+      const r = await fetchJSON(
+        'https://www.okx.com/api/v5/market/books?instId=BTC-AUD&sz=100'
+      );
+      const d = r.data[0];
+      return normalizeDepth(d.bids, d.asks);
+    },
   },
   pepperstone: {
     label: 'Pepperstone Crypto',
@@ -143,6 +191,10 @@ const exchanges = {
     takerFeeBps: 10,
     feeBakedIn: false,
     fetch: fetchPepperstoneOneShot,
+    depthFetch: async () => {
+      const { bids, asks } = await fetchPepperstoneOrderBook();
+      return normalizeDepth(bids, asks);
+    },
   },
   swyftx: {
     label: 'Swyftx (Standard)',
@@ -193,6 +245,7 @@ const server = http.createServer(async (req, res) => {
       note: v.note,
       takerFeeBps: v.takerFeeBps,
       feeBakedIn: v.feeBakedIn,
+      orderBook: !!v.depthFetch,
     }));
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify(list));
@@ -215,6 +268,30 @@ const server = http.createServer(async (req, res) => {
       return obj;
     });
     res.end(JSON.stringify({ samples }));
+    return;
+  }
+
+  const dm = req.url.match(/^\/api\/depth\/([\w-]+)$/);
+  if (dm) {
+    const id = dm[1];
+    const ex = exchanges[id];
+    res.setHeader('Content-Type', 'application/json');
+    if (!ex) {
+      res.statusCode = 404;
+      res.end(JSON.stringify({ error: `unknown exchange: ${id}` }));
+      return;
+    }
+    if (!ex.depthFetch) {
+      res.end(JSON.stringify({ orderBook: false }));
+      return;
+    }
+    try {
+      const d = await ex.depthFetch();
+      res.end(JSON.stringify({ orderBook: true, ...d, ts: Date.now() }));
+    } catch (e) {
+      res.statusCode = 502;
+      res.end(JSON.stringify({ error: e.message }));
+    }
     return;
   }
 

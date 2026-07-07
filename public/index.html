@@ -375,6 +375,127 @@
       .empty .v {
         color: var(--muted);
       }
+      .depth {
+        border-top: 1px solid var(--line);
+        padding-top: 12px;
+        margin-bottom: 6px;
+      }
+      .depth-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      .depth-head .k {
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .depth-legend {
+        display: flex;
+        gap: 12px;
+      }
+      .depth-legend span {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .depth-legend i {
+        width: 9px;
+        height: 9px;
+        border-radius: 2px;
+      }
+      .depth-legend i.bid {
+        background: var(--good);
+      }
+      .depth-legend i.ask {
+        background: var(--bad);
+      }
+      .depth-chart {
+        position: relative;
+      }
+      .depth-chart svg {
+        display: block;
+        width: 100%;
+        height: auto;
+        overflow: visible;
+      }
+      .depth-tip {
+        position: absolute;
+        pointer-events: none;
+        background: var(--bg-0);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 6px 9px;
+        font-size: 11px;
+        line-height: 1.5;
+        font-variant-numeric: tabular-nums;
+        color: var(--text);
+        white-space: nowrap;
+        transform: translate(-50%, calc(-100% - 10px));
+        opacity: 0;
+        transition: opacity 0.1s ease;
+        z-index: 5;
+      }
+      .depth-tip b {
+        font-weight: 600;
+      }
+      .depth-tip .tbid {
+        color: var(--good);
+      }
+      .depth-tip .task {
+        color: var(--bad);
+      }
+      .slip {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin-top: 14px;
+        margin-bottom: 6px;
+      }
+      .slip .tile {
+        background: var(--bg-2);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 9px 10px;
+      }
+      .slip .tile .sz {
+        color: var(--muted);
+        font-size: 10px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .slip .tile .fill {
+        font-variant-numeric: tabular-nums;
+        font-size: 13px;
+        font-weight: 600;
+        margin-top: 4px;
+      }
+      .slip .tile .slp {
+        font-size: 11px;
+        margin-top: 2px;
+        font-variant-numeric: tabular-nums;
+      }
+      .slip .tile .slp.good {
+        color: var(--good);
+      }
+      .slip .tile .slp.warn {
+        color: var(--warn);
+      }
+      .slip .tile .slp.bad {
+        color: var(--bad);
+      }
+      .broker-note {
+        border-top: 1px solid var(--line);
+        padding-top: 12px;
+        margin-bottom: 6px;
+        color: var(--muted);
+        font-size: 12px;
+        font-style: italic;
+      }
       footer {
         margin-top: 36px;
         color: var(--muted);
@@ -431,6 +552,8 @@
       const fmtBtc = (n) => n.toFixed(8) + ' BTC';
       const fmtPct = (n) => n.toFixed(3) + '%';
       const fmtTime = (ts) => new Date(ts).toLocaleTimeString('en-AU');
+      const fmtK = (n) =>
+        n >= 1000 ? 'A$' + n / 1000 + 'k' : 'A$' + n;
 
       function spreadClass(pct) {
         if (pct < 0.3) return 'good';
@@ -444,9 +567,26 @@
         card.dataset.id = ex.id;
         card.dataset.fee = ex.takerFeeBps;
         card.dataset.baked = ex.feeBakedIn ? '1' : '0';
+        card.dataset.orderbook = ex.orderBook ? '1' : '0';
         const feeLabel = ex.feeBakedIn
           ? 'baked in'
           : fmtPct(ex.takerFeeBps / 100);
+        const depthMarkup = ex.orderBook
+          ? `
+          <div class="depth" data-depth style="display:none">
+            <div class="depth-head">
+              <div class="k">Order book depth (±1.5%)</div>
+              <div class="depth-legend">
+                <span><i class="bid"></i>Bids</span>
+                <span><i class="ask"></i>Asks</span>
+              </div>
+            </div>
+            <div class="depth-chart" data-chart>
+              <div class="depth-tip" data-tip></div>
+            </div>
+          </div>
+          <div class="slip" data-slip style="display:none"></div>`
+          : `<div class="broker-note">Single broker quote — no public order book to measure depth.</div>`;
         card.innerHTML = `
           <div class="winner-badge">Cheapest</div>
           <div class="card-head">
@@ -466,6 +606,7 @@
             <div class="k">For A$<span data-amount>500</span> (after fee)</div>
             <div class="v" data-btc>— BTC</div>
           </div>
+          ${depthMarkup}
           <div class="card-foot">
             <div class="timestamp" data-ts>Never fetched</div>
             <button class="fetch" data-fetch>Fetch spread</button>
@@ -515,6 +656,7 @@
             .forEach((r) => r.classList.remove('empty'));
           card.classList.add('loaded');
           markWinner();
+          if (card.dataset.orderbook === '1') fetchDepth(id);
         } catch (e) {
           err.textContent = e.message;
           err.style.display = 'block';
@@ -523,6 +665,174 @@
           btn.disabled = false;
           btn.textContent = 'Refresh';
         }
+      }
+
+      // Walk the ask ladder to fill `size` AUD; returns average fill price and
+      // BTC obtained, or null if the book (within the levels we have) is too thin.
+      function walkBook(asks, size) {
+        let spent = 0,
+          btc = 0;
+        for (const [p, v] of asks) {
+          const cost = p * v;
+          if (spent + cost >= size) {
+            btc += (size - spent) / p;
+            spent = size;
+            break;
+          }
+          spent += cost;
+          btc += v;
+        }
+        return spent >= size - 0.5 ? { avg: size / btc, btc } : null;
+      }
+
+      function slipClass(pct) {
+        if (pct < 0.1) return 'good';
+        if (pct < 0.5) return 'warn';
+        return 'bad';
+      }
+
+      async function fetchDepth(id) {
+        const card = grid.querySelector(`[data-id="${id}"]`);
+        try {
+          const r = await fetch(`/api/depth/${id}`);
+          const d = await r.json();
+          if (!r.ok || !d.orderBook || !d.bids?.length || !d.asks?.length)
+            return;
+          renderSlippage(card, d.asks);
+          renderDepth(card, d.bids, d.asks);
+        } catch {}
+      }
+
+      function renderSlippage(card, asks) {
+        const slip = card.querySelector('[data-slip]');
+        if (!slip) return;
+        const best = asks[0][0];
+        slip.innerHTML = [1000, 10000, 100000]
+          .map((sz) => {
+            const w = walkBook(asks, sz);
+            if (!w)
+              return `<div class="tile"><div class="sz">${fmtK(sz)}</div><div class="fill">—</div><div class="slp bad">thin book</div></div>`;
+            const s = (w.avg / best - 1) * 100;
+            return `<div class="tile"><div class="sz">${fmtK(sz)}</div><div class="fill">${fmtAud(w.avg)}</div><div class="slp ${slipClass(s)}">+${s.toFixed(3)}% slip</div></div>`;
+          })
+          .join('');
+        slip.style.display = 'grid';
+      }
+
+      // Cumulative order-book depth chart, drawn as mirrored step areas around
+      // the mid price. Bids (green) climb leftward, asks (red) climb rightward.
+      function renderDepth(card, bids, asks) {
+        const wrap = card.querySelector('[data-depth]');
+        const chart = card.querySelector('[data-chart]');
+        const tip = card.querySelector('[data-tip]');
+        if (!wrap || !chart) return;
+
+        const W = 300,
+          H = 120,
+          PAD = 10;
+        const mid = (bids[0][0] + asks[0][0]) / 2;
+        const lo = mid * 0.985,
+          hi = mid * 1.015;
+
+        // cumulative [price, cumVol] within the window, out from the touch
+        const cumSide = (levels, isBid) => {
+          const pts = [];
+          let cum = 0;
+          for (const [p, v] of levels) {
+            if (isBid ? p < lo : p > hi) {
+              pts.push([isBid ? lo : hi, cum]);
+              break;
+            }
+            cum += v;
+            pts.push([p, cum]);
+          }
+          return pts;
+        };
+        const bidPts = cumSide(bids, true);
+        const askPts = cumSide(asks, false);
+        const maxCum = Math.max(
+          bidPts[bidPts.length - 1]?.[1] || 0,
+          askPts[askPts.length - 1]?.[1] || 0,
+          1e-9
+        );
+
+        const x = (p) => ((p - lo) / (hi - lo)) * W;
+        const y = (c) => H - (c / maxCum) * (H - PAD);
+        // ascending-x staircase coordinates for a stepped fill/line
+        const stepCoords = (pts) => {
+          const xy = pts
+            .map(([p, c]) => [x(p), y(c)])
+            .sort((a, b) => a[0] - b[0]);
+          const out = [];
+          if (!xy.length) return out;
+          out.push(xy[0]);
+          for (let i = 1; i < xy.length; i++) {
+            out.push([xy[i][0], xy[i - 1][1]]);
+            out.push(xy[i]);
+          }
+          return out;
+        };
+        const bidC = stepCoords(bidPts);
+        const askC = stepCoords(askPts);
+        const line = (c) => c.map((p) => p.join(',')).join(' ');
+        const area = (c) =>
+          c.length
+            ? `M ${c[0][0]},${H} L ` +
+              c.map((p) => p.join(',')).join(' L ') +
+              ` L ${c[c.length - 1][0]},${H} Z`
+            : '';
+        const mx = x(mid);
+        const bb = [x(bids[0][0]), y(bidPts[0][1])];
+        const ba = [x(asks[0][0]), y(askPts[0][1])];
+
+        chart.querySelector('svg')?.remove();
+        const svg = `
+          <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="Order book depth chart">
+            <path d="${area(bidC)}" fill="var(--good)" fill-opacity="0.14" />
+            <path d="${area(askC)}" fill="var(--bad)" fill-opacity="0.14" />
+            <polyline points="${line(bidC)}" fill="none" stroke="var(--good)" stroke-width="2" stroke-linejoin="round" />
+            <polyline points="${line(askC)}" fill="none" stroke="var(--bad)" stroke-width="2" stroke-linejoin="round" />
+            <line x1="${mx}" y1="0" x2="${mx}" y2="${H}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" opacity="0.5" />
+            <circle cx="${bb[0]}" cy="${bb[1]}" r="3" fill="var(--good)" />
+            <circle cx="${ba[0]}" cy="${ba[1]}" r="3" fill="var(--bad)" />
+            <line data-cross x1="0" y1="0" x2="0" y2="${H}" stroke="var(--text)" stroke-width="1" opacity="0" />
+          </svg>`;
+        chart.insertAdjacentHTML('afterbegin', svg);
+        const cross = chart.querySelector('[data-cross]');
+
+        // cumulative volume resting at least as good as a queried price
+        const cumAt = (pts, price, isBid) => {
+          let c = 0;
+          for (const [p, cum] of pts) {
+            if (isBid ? p >= price : p <= price) c = cum;
+            else break;
+          }
+          return c;
+        };
+
+        const move = (e) => {
+          const rect = chart.getBoundingClientRect();
+          const s = rect.width / W;
+          const vx = Math.max(0, Math.min(W, (e.clientX - rect.left) / s));
+          const price = lo + (vx / W) * (hi - lo);
+          const isBid = price <= mid;
+          const cum = cumAt(isBid ? bidPts : askPts, price, isBid);
+          cross.setAttribute('x1', vx);
+          cross.setAttribute('x2', vx);
+          cross.setAttribute('opacity', '0.5');
+          cross.setAttribute('stroke', isBid ? 'var(--good)' : 'var(--bad)');
+          tip.innerHTML = `${fmtAud(price)}<br /><b class="${isBid ? 'tbid' : 'task'}">${cum.toFixed(4)} BTC</b> · ${fmtAud(cum * price)}`;
+          tip.style.left = vx * s + 'px';
+          tip.style.top = y(cum) * s + 'px';
+          tip.style.opacity = '1';
+        };
+        chart.onmousemove = move;
+        chart.onmouseleave = () => {
+          tip.style.opacity = '0';
+          cross.setAttribute('opacity', '0');
+        };
+
+        wrap.style.display = 'block';
       }
 
       async function fetchAll() {
