@@ -199,6 +199,41 @@
       .card.winner {
         box-shadow: 0 0 32px rgba(46, 230, 166, 0.18);
       }
+      .promo-ticker {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        margin: -20px -20px 16px;
+        padding: 8px 20px;
+        background: linear-gradient(
+          90deg,
+          var(--accent),
+          var(--accent-2),
+          var(--accent)
+        );
+        background-size: 200% 100%;
+        animation: promoShimmer 3.5s linear infinite;
+        color: #0b0d12;
+        font-weight: 800;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .promo-ticker span {
+        font-weight: 600;
+        font-size: 11px;
+        letter-spacing: 0;
+        text-transform: none;
+        opacity: 0.8;
+      }
+      @keyframes promoShimmer {
+        to {
+          background-position: -200% 0;
+        }
+      }
+      .card:has(.promo-ticker) .winner-badge {
+        top: 46px;
+      }
       .winner-badge {
         position: absolute;
         top: 14px;
@@ -573,9 +608,14 @@
         card.dataset.fee = ex.takerFeeBps;
         card.dataset.baked = ex.feeBakedIn ? '1' : '0';
         card.dataset.orderbook = ex.orderBook ? '1' : '0';
-        const feeLabel = ex.feeBakedIn
-          ? 'baked in'
-          : fmtPct(ex.takerFeeBps / 100);
+        const feeLabel = ex.promo
+          ? '0% — special offer'
+          : ex.feeBakedIn
+            ? 'baked in'
+            : fmtPct(ex.takerFeeBps / 100);
+        const promoMarkup = ex.promo
+          ? `<div class="promo-ticker">✦ ${ex.promo.label}<span>${ex.promo.note}</span></div>`
+          : '';
         const depthMarkup = ex.orderBook
           ? `
           <div class="depth" data-depth style="display:none">
@@ -593,6 +633,7 @@
           <div class="slip" data-slip style="display:none"></div>`
           : `<div class="broker-note">Single broker quote — no public order book to measure depth.</div>`;
         card.innerHTML = `
+          ${promoMarkup}
           <div class="winner-badge">Cheapest</div>
           <div class="card-head">
             <div>

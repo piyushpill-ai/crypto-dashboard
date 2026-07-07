@@ -239,6 +239,14 @@ const exchanges = {
     note: 'Order book top (WebSocket)',
     takerFeeBps: 10,
     feeBakedIn: false,
+    // Launch promo: 0% trading fee through end of July 2026 (AEST), then the
+    // standard 0.10% taker resumes automatically.
+    promo: {
+      label: 'Special offer',
+      note: '0% trading fee until 31 Jul 2026',
+      feeBps: 0,
+      untilIso: '2026-07-31T23:59:59+10:00',
+    },
     fetch: fetchPepperstoneOneShot,
     depthFetch: async () => {
       const { bids, asks } = await fetchPepperstoneOrderBook();
@@ -264,8 +272,20 @@ const exchanges = {
   },
 };
 
+// Returns the exchange's promo if one is defined and still within its window.
+function activePromo(ex) {
+  if (!ex.promo) return null;
+  return Date.now() <= Date.parse(ex.promo.untilIso) ? ex.promo : null;
+}
+
+// The fee actually charged right now — the promo rate while live, else standard.
+function currentFeeBps(ex) {
+  const p = activePromo(ex);
+  return p ? p.feeBps : ex.takerFeeBps;
+}
+
 function effectivePrice(ex, ask) {
-  return ex.feeBakedIn ? ask : ask * (1 + ex.takerFeeBps / 10_000);
+  return ex.feeBakedIn ? ask : ask * (1 + currentFeeBps(ex) / 10_000);
 }
 
 async function runSample(id) {
@@ -274,7 +294,7 @@ async function runSample(id) {
   const data = await ex.fetch();
   return {
     ...data,
-    takerFeeBps: ex.takerFeeBps,
+    takerFeeBps: currentFeeBps(ex),
     feeBakedIn: ex.feeBakedIn,
     effectiveAsk: effectivePrice(ex, data.ask),
   };
@@ -288,14 +308,21 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.url === '/api/exchanges') {
-    const list = Object.entries(exchanges).map(([id, v]) => ({
-      id,
-      label: v.label,
-      note: v.note,
-      takerFeeBps: v.takerFeeBps,
-      feeBakedIn: v.feeBakedIn,
-      orderBook: !!v.depthFetch,
-    }));
+    const list = Object.entries(exchanges).map(([id, v]) => {
+      const promo = activePromo(v);
+      return {
+        id,
+        label: v.label,
+        note: v.note,
+        takerFeeBps: currentFeeBps(v),
+        standardFeeBps: v.takerFeeBps,
+        feeBakedIn: v.feeBakedIn,
+        orderBook: !!v.depthFetch,
+        promo: promo
+          ? { label: promo.label, note: promo.note, untilIso: promo.untilIso }
+          : null,
+      };
+    });
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify(list));
     return;
