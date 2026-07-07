@@ -216,8 +216,8 @@ const exchanges = {
   },
   okx: {
     label: 'OKX',
-    note: 'Order book top',
-    takerFeeBps: 70,
+    note: 'Order book top — 0.10% taker (AU regular tier)',
+    takerFeeBps: 10,
     feeBakedIn: false,
     fetch: async () => {
       const r = await fetchJSON(
