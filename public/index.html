@@ -530,9 +530,14 @@
       <div id="grid" class="grid"></div>
 
       <footer>
-        Effective price = ask × (1 + taker fee) for order-book venues; retail
-        brokers (CoinSpot/Swyftx) already bake their fee into the quote, so
-        no fee is added. Winner = lowest effective price for the input amount.
+        Effective price = ask × (1 + taker fee), applied to order-book venues
+        (Independent Reserve, Kraken, OKX, Pepperstone, BTC Markets) and to
+        retail brokers that charge on top of their quote (CoinSpot Instant Buy
+        1%, Digital Surge 0.5%). Swyftx is the exception — its ~1% margin is
+        already baked into the quoted price, so no fee is added. Depth charts
+        and slippage (walking the ask ladder for A$1k/10k/100k) use live
+        order-book data, so retail brokers show no depth. Winner = lowest
+        effective price for the input amount.
         Samples collected every 4h via GitHub Actions and committed to
         <code>data/samples.csv</code> in the repo.
       </footer>
