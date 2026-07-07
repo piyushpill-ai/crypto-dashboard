@@ -271,11 +271,6 @@
         color: var(--text);
         font-weight: 600;
       }
-      .summary .hist {
-        font-size: 12px;
-        color: var(--muted);
-        font-variant-numeric: tabular-nums;
-      }
       .card-head {
         display: flex;
         justify-content: space-between;
@@ -559,20 +554,19 @@
 
       <div id="summary" class="summary" style="display:none">
         <div class="verdict" id="verdict">—</div>
-        <div class="hist" id="hist">—</div>
       </div>
 
       <div id="grid" class="grid"></div>
 
       <footer>
-        Effective price = ask × (1 + taker fee), applied to order-book venues
-        (Independent Reserve, Kraken, OKX, Pepperstone, BTC Markets) and to
-        retail brokers that charge on top of their quote (CoinSpot Instant Buy
-        1%, Digital Surge 0.5%). Swyftx is the exception — its ~1% margin is
-        already baked into the quoted price, so no fee is added. Depth charts
-        and slippage (walking the ask ladder for A$1k/10k/100k) use live
+        Effective price = the volume-weighted average fill price to buy the
+        entered A$ amount, obtained by walking each venue's ask order book,
+        × (1 + taker fee). For retail brokers with no public order book it is
+        the quoted ask × (1 + fee), or the quote as-is where the fee is baked
+        in (Swyftx). Small amounts fill at top-of-book; larger amounts include
+        slippage. Depth charts and slippage tiles (A$1k/10k/100k) use live
         order-book data, so retail brokers show no depth. Winner = lowest
-        effective price for the input amount.
+        effective price for the entered amount.
         Samples collected every 4h via GitHub Actions and committed to
         <code>data/samples.csv</code> in the repo.
       </footer>
@@ -646,7 +640,7 @@
             <div class="row empty"><div class="k">Bid</div><div class="v bid" data-bid>—</div></div>
             <div class="row empty"><div class="k">Ask</div><div class="v ask" data-ask>—</div></div>
             <div class="row empty"><div class="k">Taker fee</div><div class="v">${feeLabel}</div></div>
-            <div class="row empty"><div class="k">Effective ask</div><div class="v" data-eff>—</div></div>
+            <div class="row empty"><div class="k">Eff. price</div><div class="v" data-eff>—</div></div>
           </div>
           <div class="btc-line">
             <div class="k">For A$<span data-amount>500</span> (after fee)</div>
@@ -679,17 +673,12 @@
           const d = await r.json();
           if (!r.ok) throw new Error(d.error || 'fetch failed');
 
-          const absSpread = d.ask - d.bid;
-          const pctSpread = (absSpread / d.bid) * 100;
-          const amount = +amountInput.value || 0;
-          const btcAmt = amount / d.effectiveAsk;
+          const pctSpread = ((d.ask - d.bid) / d.bid) * 100;
 
-          card.dataset.effective = d.effectiveAsk;
+          card.dataset.topask = d.ask;
+          card.dataset.topeff = d.effectiveAsk;
           card.querySelector('[data-bid]').textContent = fmtAud(d.bid);
           card.querySelector('[data-ask]').textContent = fmtAud(d.ask);
-          card.querySelector('[data-eff]').textContent = fmtAud(d.effectiveAsk);
-          card.querySelector('[data-amount]').textContent = amount;
-          card.querySelector('[data-btc]').textContent = fmtBtc(btcAmt);
           card.querySelector('[data-ts]').textContent =
             'Updated ' + fmtTime(d.ts);
 
@@ -701,6 +690,7 @@
             .querySelectorAll('.row.empty')
             .forEach((r) => r.classList.remove('empty'));
           card.classList.add('loaded');
+          updateEffective(card);
           markWinner();
           if (card.dataset.orderbook === '1') fetchDepth(id);
         } catch (e) {
@@ -737,6 +727,31 @@
         return 'bad';
       }
 
+      // Effective price to buy the entered A$ amount. For order-book venues,
+      // walk the ask ladder (volume-weighted average fill) × (1 + fee); for
+      // brokers / before depth loads / books too thin, fall back to top of book.
+      function updateEffective(card) {
+        const topeff = +card.dataset.topeff;
+        if (!topeff) return;
+        const amount = +amountInput.value || 0;
+        const baked = card.dataset.baked === '1';
+        const fee = +card.dataset.fee / 10000;
+        let eff = topeff;
+        const asks = card.__asks;
+        if (asks && !baked && amount > 0) {
+          const w = walkBook(asks, amount);
+          if (w) eff = w.avg * (1 + fee);
+        }
+        card.dataset.effective = eff;
+        const set = (sel, val) => {
+          const el = card.querySelector(sel);
+          if (el) el.textContent = val;
+        };
+        set('[data-eff]', fmtAud(eff));
+        set('[data-amount]', amount);
+        set('[data-btc]', fmtBtc(eff ? amount / eff : 0));
+      }
+
       async function fetchDepth(id) {
         const card = grid.querySelector(`[data-id="${id}"]`);
         try {
@@ -746,6 +761,9 @@
             return;
           renderSlippage(card, d.asks);
           renderDepth(card, d.bids, d.asks);
+          card.__asks = d.asks;
+          updateEffective(card);
+          markWinner();
         } catch {}
       }
 
@@ -912,44 +930,9 @@
         summary.style.display = 'flex';
       }
 
-      async function loadHistory() {
-        try {
-          const r = await fetch('/api/history');
-          const d = await r.json();
-          if (!d.samples.length) return;
-          const byTs = {};
-          for (const s of d.samples) {
-            (byTs[s.timestamp] ||= []).push(s);
-          }
-          const ts = Object.keys(byTs).sort();
-          const wins = {};
-          let totalBatches = 0;
-          for (const t of ts) {
-            const batch = byTs[t];
-            if (batch.length < 2) continue;
-            totalBatches++;
-            const w = batch.reduce((a, b) =>
-              +a.effective_ask < +b.effective_ask ? a : b
-            );
-            wins[w.exchange] = (wins[w.exchange] || 0) + 1;
-          }
-          const hist = document.getElementById('hist');
-          const top = Object.entries(wins).sort((a, b) => b[1] - a[1])[0];
-          hist.textContent = `Historical: ${top[0]} cheapest ${top[1]}/${totalBatches} samples (${((top[1] / totalBatches) * 100).toFixed(0)}%)`;
-          document.getElementById('summary').style.display = 'flex';
-        } catch {}
-      }
-
       amountInput.addEventListener('input', () => {
-        grid.querySelectorAll('.card.loaded').forEach((card) => {
-          const eff = +card.dataset.effective;
-          const amount = +amountInput.value || 0;
-          card.querySelector('[data-amount]').textContent = amount;
-          if (eff)
-            card.querySelector('[data-btc]').textContent = fmtBtc(
-              amount / eff
-            );
-        });
+        grid.querySelectorAll('.card.loaded').forEach(updateEffective);
+        markWinner();
       });
 
       fetchAllBtn.addEventListener('click', fetchAll);
@@ -958,7 +941,6 @@
         const r = await fetch('/api/exchanges');
         const list = await r.json();
         list.forEach((ex) => grid.appendChild(renderCard(ex)));
-        loadHistory();
       })();
     </script>
   </body>
