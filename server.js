@@ -145,6 +145,24 @@ const exchanges = {
       );
     },
   },
+  btcmarkets: {
+    label: 'BTC Markets',
+    note: 'Order book top',
+    takerFeeBps: 85,
+    feeBakedIn: false,
+    fetch: async () => {
+      const r = await fetchJSON(
+        'https://api.btcmarkets.net/v3/markets/BTC-AUD/ticker'
+      );
+      return { bid: +r.bestBid, ask: +r.bestAsk, last: +r.lastPrice };
+    },
+    depthFetch: async () => {
+      const r = await fetchJSON(
+        'https://api.btcmarkets.net/v3/markets/BTC-AUD/orderbook?level=2'
+      );
+      return normalizeDepth(r.bids, r.asks);
+    },
+  },
   kraken: {
     label: 'Kraken',
     note: 'Order book top',
