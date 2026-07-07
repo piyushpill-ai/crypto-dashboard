@@ -88,6 +88,16 @@ function normalizeDepth(bids, asks, cap = 200) {
   };
 }
 
+// Kraken Pro and Kraken Instant Buy trade on the same XBTAUD book; both rows
+// share this top-of-book quote and differ only in the fee applied on top.
+async function fetchKrakenTicker() {
+  const r = await fetchJSON(
+    'https://api.kraken.com/0/public/Ticker?pair=XBTAUD'
+  );
+  const k = r.result[Object.keys(r.result)[0]];
+  return { bid: +k.b[0], ask: +k.a[0], last: +k.c[0] };
+}
+
 // Fees are TAKER fees in basis points (1 bp = 0.01%).
 // feeBakedIn = true means the quoted ask already includes the venue's markup,
 // so we should NOT add taker fee on top — doing so would double-count.
@@ -164,17 +174,11 @@ const exchanges = {
     },
   },
   kraken: {
-    label: 'Kraken',
-    note: 'Order book top',
-    takerFeeBps: 80,
+    label: 'Kraken Pro',
+    note: 'Order book top — 0.40% base taker',
+    takerFeeBps: 40,
     feeBakedIn: false,
-    fetch: async () => {
-      const r = await fetchJSON(
-        'https://api.kraken.com/0/public/Ticker?pair=XBTAUD'
-      );
-      const k = r.result[Object.keys(r.result)[0]];
-      return { bid: +k.b[0], ask: +k.a[0], last: +k.c[0] };
-    },
+    fetch: fetchKrakenTicker,
     depthFetch: async () => {
       const r = await fetchJSON(
         'https://api.kraken.com/0/public/Depth?pair=XBTAUD&count=100'
@@ -182,6 +186,15 @@ const exchanges = {
       const k = r.result[Object.keys(r.result)[0]];
       return normalizeDepth(k.bids, k.asks);
     },
+  },
+  krakeninstant: {
+    label: 'Kraken (Instant Buy)',
+    note: 'Retail one-click — 1% fee on top (plus an unshown spread)',
+    takerFeeBps: 100,
+    feeBakedIn: false,
+    // No order book of its own: uses the Pro book price + the Instant Buy fee.
+    // Real Instant Buy also bakes in a spread we can't see, so this is a floor.
+    fetch: fetchKrakenTicker,
   },
   okx: {
     label: 'OKX',
