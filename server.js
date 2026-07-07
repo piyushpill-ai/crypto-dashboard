@@ -173,6 +173,24 @@ const exchanges = {
       return normalizeDepth(r.bids, r.asks);
     },
   },
+  coinjar: {
+    label: 'CoinJar Exchange',
+    note: 'Order book top — 0.10% taker',
+    takerFeeBps: 10,
+    feeBakedIn: false,
+    fetch: async () => {
+      const r = await fetchJSON(
+        'https://data.exchange.coinjar.com/products/BTCAUD/ticker'
+      );
+      return { bid: +r.bid, ask: +r.ask, last: +r.last };
+    },
+    depthFetch: async () => {
+      const r = await fetchJSON(
+        'https://data.exchange.coinjar.com/products/BTCAUD/book?level=2'
+      );
+      return normalizeDepth(r.bids, r.asks);
+    },
+  },
   kraken: {
     label: 'Kraken Pro',
     note: 'Order book top — 0.40% base taker',
