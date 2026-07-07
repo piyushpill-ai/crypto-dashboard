@@ -565,13 +565,8 @@
         the quoted ask × (1 + fee), or the quote as-is where the fee is baked
         in (Swyftx). Small amounts fill at top-of-book; larger amounts include
         slippage. Depth charts and slippage tiles (A$1k/10k/100k) use live
-        order-book data, so retail brokers show no depth. All-in price = total
-        AUD paid per BTC that lands in your wallet for the entered amount,
-        counting AUD deposit (free by bank transfer on all venues), the trade,
-        and the on-chain BTC withdrawal. Withdrawal is the venue's fee where
-        known, otherwise an assumed ~0.00002 BTC network fee; Pepperstone
-        Crypto waives withdrawal fees. Winner = lowest all-in price for the
-        entered amount.
+        order-book data, so retail brokers show no depth. Winner = lowest
+        effective price for the entered amount.
         Samples collected every 4h via GitHub Actions and committed to
         <code>data/samples.csv</code> in the repo.
       </footer>
@@ -607,8 +602,6 @@
         card.dataset.fee = ex.takerFeeBps;
         card.dataset.baked = ex.feeBakedIn ? '1' : '0';
         card.dataset.orderbook = ex.orderBook ? '1' : '0';
-        card.dataset.deposit = ex.depositFeeAud ?? 0;
-        card.dataset.wd = ex.withdrawalFeeBtc ?? 0;
         const feeLabel = ex.promo
           ? '0% — special offer'
           : ex.feeBakedIn
@@ -648,8 +641,6 @@
             <div class="row empty"><div class="k">Ask</div><div class="v ask" data-ask>—</div></div>
             <div class="row empty"><div class="k">Taker fee</div><div class="v">${feeLabel}</div></div>
             <div class="row empty"><div class="k">Eff. price</div><div class="v" data-eff>—</div></div>
-            <div class="row empty"><div class="k">Withdrawal fee</div><div class="v" data-wd>—</div></div>
-            <div class="row empty"><div class="k">All-in price</div><div class="v" data-allin>—</div></div>
           </div>
           <div class="btc-line">
             <div class="k">For A$<span data-amount>500</span> (after fee)</div>
@@ -759,18 +750,6 @@
         set('[data-eff]', fmtAud(eff));
         set('[data-amount]', amount);
         set('[data-btc]', fmtBtc(eff ? amount / eff : 0));
-
-        // All-in total cost: deposit (AUD) + trade + on-chain withdrawal (BTC),
-        // expressed as AUD paid per BTC that actually lands in your wallet.
-        const deposit = +card.dataset.deposit || 0;
-        const wd = +card.dataset.wd || 0;
-        const topask = +card.dataset.topask || 0;
-        set('[data-wd]', wd === 0 ? 'Free' : fmtBtc(wd));
-        const btcBought = eff ? (amount - deposit) / eff : 0;
-        const btcWallet = btcBought - wd;
-        const allin = btcWallet > 0 ? amount / btcWallet : Infinity;
-        card.dataset.allin = allin;
-        set('[data-allin]', isFinite(allin) ? fmtAud(allin) : '—');
       }
 
       async function fetchDepth(id) {
@@ -932,27 +911,22 @@
       }
 
       function markWinner() {
-        grid
-          .querySelectorAll('.card.winner')
-          .forEach((c) => c.classList.remove('winner'));
-        const cards = [...grid.querySelectorAll('.card.loaded')].filter(
-          (c) => isFinite(+c.dataset.allin) && +c.dataset.allin > 0
-        );
+        const cards = [...grid.querySelectorAll('.card.loaded')];
         if (cards.length < 2) return;
+        cards.forEach((c) => c.classList.remove('winner'));
         const sorted = cards
-          .map((c) => ({ card: c, v: +c.dataset.allin }))
-          .sort((a, b) => a.v - b.v);
+          .map((c) => ({ card: c, eff: +c.dataset.effective }))
+          .sort((a, b) => a.eff - b.eff);
         sorted[0].card.classList.add('winner');
 
         const summary = document.getElementById('summary');
         const verdict = document.getElementById('verdict');
         const winner = sorted[0];
         const next = sorted[1];
-        const delta = ((next.v - winner.v) / winner.v) * 100;
+        const delta = ((next.eff - winner.eff) / winner.eff) * 100;
         const label = winner.card.querySelector('h2').textContent;
         const nextLabel = next.card.querySelector('h2').textContent;
-        const amount = +amountInput.value || 0;
-        verdict.innerHTML = `Lowest all-in cost for A$${amount} (buy + withdraw): <strong>${label}</strong> at ${fmtAud(winner.v)}/BTC — ${delta.toFixed(3)}% below ${nextLabel}`;
+        verdict.innerHTML = `Cheapest right now: <strong>${label}</strong> at ${fmtAud(winner.eff)} — ${delta.toFixed(3)}% below ${nextLabel}`;
         summary.style.display = 'flex';
       }
 

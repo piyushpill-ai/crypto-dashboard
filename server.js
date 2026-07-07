@@ -239,8 +239,6 @@ const exchanges = {
     note: 'Order book top (WebSocket)',
     takerFeeBps: 10,
     feeBakedIn: false,
-    depositFeeAud: 0,
-    withdrawalFeeBtc: 0, // free crypto withdrawals (verified)
     // Launch promo: 0% trading fee through end of July 2026 (AEST), then the
     // standard 0.10% taker resumes automatically.
     promo: {
@@ -273,21 +271,6 @@ const exchanges = {
     },
   },
 };
-
-// Representative on-chain BTC withdrawal (network) fee, in BTC. Most AU venues
-// pass the network fee through on crypto withdrawals; a few (Pepperstone) waive
-// it. This is a disclosed assumption — override per venue via withdrawalFeeBtc.
-const NETWORK_FEE_BTC = 0.00002;
-
-// AUD deposit fee (bank transfer / PayID is free on all AU venues modelled).
-function depositFee(ex) {
-  return ex.depositFeeAud ?? 0;
-}
-
-// BTC on-chain withdrawal fee for this venue (0 where withdrawals are free).
-function withdrawalFee(ex) {
-  return ex.withdrawalFeeBtc ?? NETWORK_FEE_BTC;
-}
 
 // Returns the exchange's promo if one is defined and still within its window.
 function activePromo(ex) {
@@ -363,8 +346,6 @@ const server = http.createServer(async (req, res) => {
         takerFeeBps: currentFeeBps(v),
         standardFeeBps: v.takerFeeBps,
         feeBakedIn: v.feeBakedIn,
-        depositFeeAud: depositFee(v),
-        withdrawalFeeBtc: withdrawalFee(v),
         orderBook: !!v.depthFetch,
         promo: promo
           ? { label: promo.label, note: promo.note, untilIso: promo.untilIso }
