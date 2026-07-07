@@ -300,6 +300,35 @@ async function runSample(id) {
   };
 }
 
+// Volume-weighted average ask price to fill `sizeAud` of AUD by walking the
+// ask ladder; null if the provided levels can't fill it. Mirrors the frontend.
+function walkBookAvg(asks, sizeAud) {
+  let spent = 0,
+    btc = 0;
+  for (const [p, v] of asks) {
+    const cost = p * v;
+    if (spent + cost >= sizeAud) {
+      btc += (sizeAud - spent) / p;
+      spent = sizeAud;
+      break;
+    }
+    spent += cost;
+    btc += v;
+  }
+  return spent >= sizeAud - 0.5 ? sizeAud / btc : null;
+}
+
+// Effective (fee-inclusive) price to buy `sizeAud` worth: walk the book when
+// depth is available, otherwise fall back to the top-of-book effective price.
+function effectiveForSize(ex, quote, depthAsks, sizeAud) {
+  if (ex.feeBakedIn) return quote.effectiveAsk; // spread-inclusive; size-agnostic
+  if (depthAsks && depthAsks.length) {
+    const avg = walkBookAvg(depthAsks, sizeAud);
+    if (avg) return avg * (1 + currentFeeBps(ex) / 10_000);
+  }
+  return quote.effectiveAsk;
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.url === '/' || req.url === '/index.html') {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -388,7 +417,13 @@ const server = http.createServer(async (req, res) => {
   res.end();
 });
 
-module.exports = { exchanges, runSample, effectivePrice };
+module.exports = {
+  exchanges,
+  runSample,
+  effectivePrice,
+  walkBookAvg,
+  effectiveForSize,
+};
 
 if (require.main === module) {
   const PORT = process.env.PORT || 3000;
