@@ -255,9 +255,9 @@ const exchanges = {
   },
   swyftx: {
     label: 'Swyftx (Standard)',
-    note: 'Retail price — ~1% spread baked in. Pro tier needs auth.',
-    takerFeeBps: 0,
-    feeBakedIn: true,
+    note: 'Retail broker — spread in quote, + 0.6% trading fee on top (standard tier)',
+    takerFeeBps: 60,
+    feeBakedIn: false,
     fetch: async () => {
       const r = await fetchJSON(
         'https://api.swyftx.com.au/markets/info/basic/BTC/'
