@@ -950,6 +950,19 @@
         fetchAllBtn.textContent = 'Refresh all';
       }
 
+      // Reorder cards cheapest-first; loaded/ranked cards rise above
+      // not-yet-fetched ones (which keep their original relative order).
+      function reorderCards() {
+        [...grid.querySelectorAll('.card')]
+          .sort((a, b) => {
+            const ra = a.classList.contains('loaded') && isFinite(+a.dataset.effective);
+            const rb = b.classList.contains('loaded') && isFinite(+b.dataset.effective);
+            if (ra && rb) return +a.dataset.effective - +b.dataset.effective;
+            return ra ? -1 : rb ? 1 : 0;
+          })
+          .forEach((c) => grid.appendChild(c));
+      }
+
       function markWinner() {
         const cards = [...grid.querySelectorAll('.card.loaded')];
         if (cards.length < 2) return;
@@ -958,6 +971,7 @@
           .map((c) => ({ card: c, eff: +c.dataset.effective }))
           .sort((a, b) => a.eff - b.eff);
         sorted[0].card.classList.add('winner');
+        reorderCards();
 
         const summary = document.getElementById('summary');
         const verdict = document.getElementById('verdict');
