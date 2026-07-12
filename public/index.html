@@ -271,6 +271,12 @@
         color: var(--text);
         font-weight: 600;
       }
+      .summary .asof {
+        color: var(--muted);
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
       .card-head {
         display: flex;
         justify-content: space-between;
@@ -554,6 +560,7 @@
 
       <div id="summary" class="summary" style="display:none">
         <div class="verdict" id="verdict">—</div>
+        <div class="asof" id="asof"></div>
       </div>
 
       <div id="grid" class="grid"></div>
@@ -588,6 +595,38 @@
       const fmtTime = (ts) => new Date(ts).toLocaleTimeString('en-AU');
       const fmtK = (n) =>
         n >= 1000 ? 'A$' + n / 1000 + 'k' : 'A$' + n;
+
+      // "as of 9:00 am AEST, 13 July 2026" — in Sydney time (AEST/AEDT auto).
+      const fmtAsOf = (ts) => {
+        const d = new Date(ts);
+        const tz = 'Australia/Sydney';
+        const time = d
+          .toLocaleTimeString('en-AU', {
+            timeZone: tz,
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+          })
+          .toLowerCase()
+          .replace(/\s/g, ' ');
+        const date = d.toLocaleDateString('en-AU', {
+          timeZone: tz,
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        });
+        const zone =
+          new Intl.DateTimeFormat('en-AU', {
+            timeZone: tz,
+            timeZoneName: 'short',
+          })
+            .formatToParts(d)
+            .find((p) => p.type === 'timeZoneName')?.value || 'AEST';
+        return `as of ${time} ${zone}, ${date}`;
+      };
+
+      // Time the live prices were last fetched (drives the "as of" stamp).
+      let lastFetchTs = null;
 
       function spreadClass(pct) {
         if (pct < 0.3) return 'good';
@@ -677,6 +716,7 @@
 
           card.dataset.topask = d.ask;
           card.dataset.topeff = d.effectiveAsk;
+          lastFetchTs = d.ts;
           card.querySelector('[data-bid]').textContent = fmtAud(d.bid);
           card.querySelector('[data-ask]').textContent = fmtAud(d.ask);
           card.querySelector('[data-ts]').textContent =
@@ -927,6 +967,8 @@
         const label = winner.card.querySelector('h2').textContent;
         const nextLabel = next.card.querySelector('h2').textContent;
         verdict.innerHTML = `Cheapest right now: <strong>${label}</strong> at ${fmtAud(winner.eff)} — ${delta.toFixed(3)}% below ${nextLabel}`;
+        const asof = document.getElementById('asof');
+        if (asof && lastFetchTs) asof.textContent = fmtAsOf(lastFetchTs);
         summary.style.display = 'flex';
       }
 
