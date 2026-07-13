@@ -699,8 +699,8 @@
             <div class="row empty"><div class="k">Taker fee</div><div class="v">${feeLabel}</div></div>
           </div>
           <div class="btc-line">
-            <div class="k">Estimated Finder Effective Price</div>
-            <div class="v" data-eff>—</div>
+            <div class="k">Estimated BTC received for A$<span data-amount>500</span></div>
+            <div class="v" data-btc>— BTC</div>
           </div>
           ${depthMarkup}
           <div class="card-foot">
@@ -804,7 +804,8 @@
           const el = card.querySelector(sel);
           if (el) el.textContent = val;
         };
-        set('[data-eff]', fmtAud(eff));
+        set('[data-amount]', amount);
+        set('[data-btc]', fmtBtc(eff ? amount / eff : 0));
       }
 
       async function fetchDepth(id) {
