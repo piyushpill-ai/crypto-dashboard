@@ -6,17 +6,17 @@
     <title>BTC/AUD Spread Dashboard</title>
     <style>
       :root {
-        --bg-0: #0b0d12;
-        --bg-1: #11141c;
-        --bg-2: #161a24;
-        --line: #232836;
-        --text: #e6e9f2;
-        --muted: #8089a0;
+        --bg-0: #f4f6f9;
+        --bg-1: #ffffff;
+        --bg-2: #eceef3;
+        --line: #e0e4ec;
+        --text: #14171f;
+        --muted: #5f6b7e;
         --accent: #7c5cff;
-        --accent-2: #00d1b2;
-        --good: #2ee6a6;
-        --warn: #ffb547;
-        --bad: #ff5c7a;
+        --accent-2: #00a98f;
+        --good: #0c9d63;
+        --warn: #b5730a;
+        --bad: #e0384f;
       }
       * {
         box-sizing: border-box;
@@ -132,7 +132,7 @@
       }
       button:hover:not(:disabled) {
         border-color: var(--accent);
-        background: #1b1f2c;
+        background: #e6e9f0;
       }
       button:disabled {
         opacity: 0.5;
@@ -142,6 +142,7 @@
         background: linear-gradient(135deg, var(--accent), #5a3fff);
         border: none;
         font-weight: 600;
+        color: #fff;
       }
       .fetch-all:hover:not(:disabled) {
         background: linear-gradient(135deg, #8a6cff, #6a4fff);
@@ -164,6 +165,7 @@
         position: relative;
         overflow: hidden;
         transition: border-color 0.2s ease;
+        box-shadow: 0 1px 3px rgba(17, 20, 28, 0.05);
       }
       .card::before {
         content: '';
@@ -282,6 +284,20 @@
         justify-content: space-between;
         align-items: flex-start;
         margin-bottom: 16px;
+        gap: 10px;
+      }
+      .titlewrap {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+      .titlewrap .logo {
+        height: 28px;
+        width: auto;
+        max-width: 96px;
+        object-fit: contain;
+        flex: none;
       }
       .card h2 {
         margin: 0;
@@ -669,9 +685,12 @@
           ${promoMarkup}
           <div class="winner-badge">Cheapest</div>
           <div class="card-head">
-            <div>
-              <h2>${ex.label}</h2>
-              <div class="note">${ex.note}</div>
+            <div class="titlewrap">
+              ${ex.logo ? `<img class="logo" src="/logos/${encodeURIComponent(ex.logo)}" alt="${ex.label} logo" loading="lazy" />` : ''}
+              <div>
+                <h2>${ex.label}</h2>
+                <div class="note">${ex.note}</div>
+              </div>
             </div>
             <div class="spread-pill" data-spread>—</div>
           </div>

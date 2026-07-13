@@ -329,6 +329,28 @@ function effectiveForSize(ex, quote, depthAsks, sizeAud) {
   return quote.effectiveAsk;
 }
 
+// Exchange logo filenames, served from the /logos directory.
+const LOGOS = {
+  coinspot: 'coinspot.png',
+  digitalsurge: 'digital surge.png',
+  independentreserve: 'independent reserve.svg',
+  btcmarkets: 'btc markets.png',
+  coinjar: 'coinjar.png',
+  kraken: 'kraken pro.png',
+  krakeninstant: 'kraken.png',
+  okx: 'okx.png',
+  pepperstone: 'pepperstone.png',
+  swyftx: 'swyftx.png',
+};
+
+const LOGO_TYPES = {
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+};
+
 const server = http.createServer(async (req, res) => {
   if (req.url === '/' || req.url === '/index.html') {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -347,6 +369,7 @@ const server = http.createServer(async (req, res) => {
         standardFeeBps: v.takerFeeBps,
         feeBakedIn: v.feeBakedIn,
         orderBook: !!v.depthFetch,
+        logo: LOGOS[id] || null,
         promo: promo
           ? { label: promo.label, note: promo.note, untilIso: promo.untilIso }
           : null,
@@ -409,6 +432,27 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       res.statusCode = m[1] in exchanges ? 502 : 404;
       res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  const lm = req.url.match(/^\/logos\/(.+)$/);
+  if (lm) {
+    const file = decodeURIComponent(lm[1].split('?')[0]);
+    if (file.includes('..') || file.includes('/')) {
+      res.statusCode = 400;
+      res.end();
+      return;
+    }
+    try {
+      const data = fs.readFileSync(path.join(__dirname, 'logos', file));
+      const ext = path.extname(file).toLowerCase();
+      res.setHeader('Content-Type', LOGO_TYPES[ext] || 'application/octet-stream');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.end(data);
+    } catch {
+      res.statusCode = 404;
+      res.end();
     }
     return;
   }
