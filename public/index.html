@@ -590,8 +590,7 @@
         slippage. Depth charts and slippage tiles (A$1k/10k/100k) use live
         order-book data, so retail brokers show no depth. Winner = lowest
         effective price for the entered amount.
-        Samples collected every 4h via GitHub Actions and committed to
-        <code>data/samples.csv</code> in the repo.
+        Samples collected every 4h.
       </footer>
     </div>
 
@@ -698,11 +697,10 @@
             <div class="row empty"><div class="k">Bid</div><div class="v bid" data-bid>—</div></div>
             <div class="row empty"><div class="k">Ask</div><div class="v ask" data-ask>—</div></div>
             <div class="row empty"><div class="k">Taker fee</div><div class="v">${feeLabel}</div></div>
-            <div class="row empty"><div class="k">Eff. price</div><div class="v" data-eff>—</div></div>
           </div>
           <div class="btc-line">
-            <div class="k">For A$<span data-amount>500</span> (after fee)</div>
-            <div class="v" data-btc>— BTC</div>
+            <div class="k">Estimated Finder Effective Price</div>
+            <div class="v" data-eff>—</div>
           </div>
           ${depthMarkup}
           <div class="card-foot">
@@ -807,8 +805,6 @@
           if (el) el.textContent = val;
         };
         set('[data-eff]', fmtAud(eff));
-        set('[data-amount]', amount);
-        set('[data-btc]', fmtBtc(eff ? amount / eff : 0));
       }
 
       async function fetchDepth(id) {
