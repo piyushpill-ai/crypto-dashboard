@@ -548,6 +548,16 @@
         font-size: 12px;
         font-style: italic;
       }
+      .conv-note {
+        background: rgba(124, 92, 255, 0.08);
+        border: 1px solid rgba(124, 92, 255, 0.25);
+        border-radius: 8px;
+        padding: 7px 10px;
+        margin-bottom: 14px;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.45;
+      }
       footer {
         margin-top: 36px;
         color: var(--muted);
@@ -664,6 +674,9 @@
         const promoMarkup = ex.promo
           ? `<div class="promo-ticker">✦ ${ex.promo.label}<span>${ex.promo.note}</span></div>`
           : '';
+        const conversionMarkup = ex.conversion
+          ? `<div class="conv-note">↔ Routed via AUD→USDC — price includes a ~0.5% conversion cost. Excludes moving USDC between exchanges.</div>`
+          : '';
         const depthMarkup = ex.orderBook
           ? `
           <div class="depth" data-depth style="display:none">
@@ -693,6 +706,7 @@
             </div>
             <div class="spread-pill" data-spread>—</div>
           </div>
+          ${conversionMarkup}
           <div class="rows">
             <div class="row empty"><div class="k">Bid</div><div class="v bid" data-bid>—</div></div>
             <div class="row empty"><div class="k">Ask</div><div class="v ask" data-ask>—</div></div>

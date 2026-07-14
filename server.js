@@ -98,6 +98,39 @@ async function fetchKrakenTicker() {
   return { bid: +k.b[0], ask: +k.a[0], last: +k.c[0] };
 }
 
+// ---- USD-routed global venues --------------------------------------------
+// You can't buy BTC/AUD directly on these; the modelled journey is
+// AUD -> USDC (swap) -> BTC on the venue's USD/USDC book. The AUD-per-USDC rate
+// comes from Independent Reserve's real USDC/AUD book; CONVERSION_SWAP_FEE_BPS
+// is the swap cost (IR's 0.5% taker, consistent with the rate source). Excludes
+// moving USDC between exchanges (flagged in the UI).
+const CONVERSION_SWAP_FEE_BPS = 50;
+
+async function fetchAudPerUsdc() {
+  const r = await fetchJSON(
+    'https://api.independentreserve.com/Public/GetMarketSummary?primaryCurrencyCode=Usdc&secondaryCurrencyCode=Aud'
+  );
+  const ask = +r.CurrentLowestOfferPrice; // AUD to buy 1 USDC
+  return ask * (1 + CONVERSION_SWAP_FEE_BPS / 10_000);
+}
+
+// Wrap USD/USDC-quoted fetchers so they return AUD-converted values.
+function convertedQuote(usdFetch) {
+  return async () => {
+    const [q, rate] = await Promise.all([usdFetch(), fetchAudPerUsdc()]);
+    return { bid: q.bid * rate, ask: q.ask * rate, last: q.last * rate };
+  };
+}
+function convertedDepth(usdDepth) {
+  return async () => {
+    const [d, rate] = await Promise.all([usdDepth(), fetchAudPerUsdc()]);
+    return normalizeDepth(
+      d.bids.map(([p, v]) => [+p * rate, +v]),
+      d.asks.map(([p, v]) => [+p * rate, +v])
+    );
+  };
+}
+
 // Fees are TAKER fees in basis points (1 bp = 0.01%).
 // feeBakedIn = true means the quoted ask already includes the venue's markup,
 // so we should NOT add taker fee on top — doing so would double-count.
@@ -234,6 +267,89 @@ const exchanges = {
       return normalizeDepth(d.bids, d.asks);
     },
   },
+  binance: {
+    label: 'Binance',
+    note: 'Global — BTC-USDC book',
+    takerFeeBps: 10,
+    feeBakedIn: false,
+    conversion: true,
+    fetch: convertedQuote(async () => {
+      const r = await fetchJSON(
+        'https://api.binance.com/api/v3/ticker/bookTicker?symbol=BTCUSDC'
+      );
+      const bid = +r.bidPrice,
+        ask = +r.askPrice;
+      return { bid, ask, last: (bid + ask) / 2 };
+    }),
+    depthFetch: convertedDepth(async () => {
+      const r = await fetchJSON(
+        'https://api.binance.com/api/v3/depth?symbol=BTCUSDC&limit=100'
+      );
+      return { bids: r.bids, asks: r.asks };
+    }),
+  },
+  kucoin: {
+    label: 'KuCoin',
+    note: 'Global — BTC-USDC book',
+    takerFeeBps: 10,
+    feeBakedIn: false,
+    conversion: true,
+    fetch: convertedQuote(async () => {
+      const r = await fetchJSON(
+        'https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=BTC-USDC'
+      );
+      const d = r.data;
+      return { bid: +d.bestBid, ask: +d.bestAsk, last: +d.price };
+    }),
+    depthFetch: convertedDepth(async () => {
+      const r = await fetchJSON(
+        'https://api.kucoin.com/api/v1/market/orderbook/level2_100?symbol=BTC-USDC'
+      );
+      return { bids: r.data.bids, asks: r.data.asks };
+    }),
+  },
+  cryptocom: {
+    label: 'Crypto.com',
+    note: 'Global — BTC-USD book',
+    takerFeeBps: 50,
+    feeBakedIn: false,
+    conversion: true,
+    fetch: convertedQuote(async () => {
+      const r = await fetchJSON(
+        'https://api.crypto.com/exchange/v1/public/get-book?instrument_name=BTC_USD&depth=10'
+      );
+      const d = r.result.data[0];
+      const bid = +d.bids[0][0],
+        ask = +d.asks[0][0];
+      return { bid, ask, last: (bid + ask) / 2 };
+    }),
+    depthFetch: convertedDepth(async () => {
+      const r = await fetchJSON(
+        'https://api.crypto.com/exchange/v1/public/get-book?instrument_name=BTC_USD&depth=50'
+      );
+      const d = r.result.data[0];
+      return { bids: d.bids, asks: d.asks };
+    }),
+  },
+  coinbase: {
+    label: 'Coinbase',
+    note: 'Global — BTC-USD book',
+    takerFeeBps: 60,
+    feeBakedIn: false,
+    conversion: true,
+    fetch: convertedQuote(async () => {
+      const r = await fetchJSON(
+        'https://api.exchange.coinbase.com/products/BTC-USD/ticker'
+      );
+      return { bid: +r.bid, ask: +r.ask, last: +r.price };
+    }),
+    depthFetch: convertedDepth(async () => {
+      const r = await fetchJSON(
+        'https://api.exchange.coinbase.com/products/BTC-USD/book?level=2'
+      );
+      return { bids: r.bids, asks: r.asks };
+    }),
+  },
   pepperstone: {
     label: 'Pepperstone Crypto',
     note: 'Order book top (WebSocket)',
@@ -369,6 +485,7 @@ const server = http.createServer(async (req, res) => {
         standardFeeBps: v.takerFeeBps,
         feeBakedIn: v.feeBakedIn,
         orderBook: !!v.depthFetch,
+        conversion: !!v.conversion,
         logo: LOGOS[id] || null,
         promo: promo
           ? { label: promo.label, note: promo.note, untilIso: promo.untilIso }
