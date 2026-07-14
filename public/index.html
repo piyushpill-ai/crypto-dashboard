@@ -610,11 +610,13 @@
       const fetchAllBtn = document.getElementById('fetch-all');
 
       const fmtAud = (n) =>
-        n.toLocaleString('en-AU', {
-          style: 'currency',
-          currency: 'AUD',
-          maximumFractionDigits: 2,
-        });
+        Number.isFinite(n)
+          ? n.toLocaleString('en-AU', {
+              style: 'currency',
+              currency: 'AUD',
+              maximumFractionDigits: 2,
+            })
+          : '—';
       const fmtBtc = (n) => n.toFixed(8) + ' BTC';
       const fmtPct = (n) => n.toFixed(3) + '%';
       const fmtTime = (ts) => new Date(ts).toLocaleTimeString('en-AU');

@@ -275,7 +275,7 @@ const exchanges = {
     conversion: true,
     fetch: convertedQuote(async () => {
       const r = await fetchJSON(
-        'https://api.binance.com/api/v3/ticker/bookTicker?symbol=BTCUSDC'
+        'https://data-api.binance.vision/api/v3/ticker/bookTicker?symbol=BTCUSDC'
       );
       const bid = +r.bidPrice,
         ask = +r.askPrice;
@@ -283,7 +283,7 @@ const exchanges = {
     }),
     depthFetch: convertedDepth(async () => {
       const r = await fetchJSON(
-        'https://api.binance.com/api/v3/depth?symbol=BTCUSDC&limit=100'
+        'https://data-api.binance.vision/api/v3/depth?symbol=BTCUSDC&limit=100'
       );
       return { bids: r.bids, asks: r.asks };
     }),
@@ -408,6 +408,9 @@ async function runSample(id) {
   const ex = exchanges[id];
   if (!ex) throw new Error(`unknown exchange: ${id}`);
   const data = await ex.fetch();
+  if (!Number.isFinite(data.bid) || !Number.isFinite(data.ask)) {
+    throw new Error('no valid price (venue API may be geo-restricted or down)');
+  }
   return {
     ...data,
     takerFeeBps: currentFeeBps(ex),
