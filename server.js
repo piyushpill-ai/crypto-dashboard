@@ -457,6 +457,10 @@ const LOGOS = {
   okx: 'okx.png',
   pepperstone: 'pepperstone.png',
   swyftx: 'swyftx.png',
+  binance: 'binance.png',
+  kucoin: 'kucoin.webp',
+  cryptocom: 'crypto.com.png',
+  coinbase: 'coinbase.png',
 };
 
 const LOGO_TYPES = {
