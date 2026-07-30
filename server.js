@@ -22,17 +22,27 @@ function fetchJSON(url, extraHeaders = {}) {
   });
 }
 
-// One-shot Pepperstone order-book snapshot over WebSocket. Resolves with the
-// full { bids, asks } arrays (each entry [price, size]); callers derive either
-// the top-of-book quote or the whole depth ladder from it.
+// Pepperstone publishes its order book over WebSocket, and the first frame can
+// be partial (it fills in over the next ~second). To avoid under-representing
+// depth, we collect frames for a short window after the first one and return
+// the fullest single frame (most levels) — a consistent point-in-time book.
+const PEPPERSTONE_COLLECT_MS = 1500;
+
 function fetchPepperstoneOrderBook() {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket('wss://nodes.pepperstonecrypto.com/ws');
-    const to = setTimeout(() => {
+    let best = null; // fullest frame seen (by total level count)
+    let collectTimer = null;
+    const finish = (result, err) => {
+      clearTimeout(hardTimeout);
+      clearTimeout(collectTimer);
       try {
         ws.close();
       } catch {}
-      reject(new Error('Pepperstone WS timeout'));
+      err ? reject(err) : resolve(result);
+    };
+    const hardTimeout = setTimeout(() => {
+      best ? finish(best) : finish(null, new Error('Pepperstone WS timeout'));
     }, 8000);
     ws.addEventListener('open', () => {
       ws.send(
@@ -49,17 +59,19 @@ function fetchPepperstoneOrderBook() {
           msg.data.bids?.length &&
           msg.data.asks?.length
         ) {
-          clearTimeout(to);
-          try {
-            ws.close();
-          } catch {}
-          resolve({ bids: msg.data.bids, asks: msg.data.asks });
+          const levels = msg.data.bids.length + msg.data.asks.length;
+          if (!best || levels > best.bids.length + best.asks.length) {
+            best = { bids: msg.data.bids, asks: msg.data.asks };
+          }
+          // Once the first frame arrives, keep the fullest for a short window.
+          if (!collectTimer) {
+            collectTimer = setTimeout(() => finish(best), PEPPERSTONE_COLLECT_MS);
+          }
         }
       } catch {}
     });
     ws.addEventListener('error', () => {
-      clearTimeout(to);
-      reject(new Error('Pepperstone WS error'));
+      finish(null, new Error('Pepperstone WS error'));
     });
   });
 }
