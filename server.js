@@ -126,16 +126,6 @@ async function fetchAudPerUsdc() {
   return ask * (1 + CONVERSION_SWAP_FEE_BPS / 10_000);
 }
 
-// Coinbase can convert AUD→USDC on its own USDC-AUD book — a self-contained
-// journey (no inter-exchange transfer), but at Coinbase's own ~0.60% taker.
-const COINBASE_SWAP_FEE_BPS = 60;
-async function fetchAudPerUsdcCoinbase() {
-  const r = await fetchJSON(
-    'https://api.exchange.coinbase.com/products/USDC-AUD/ticker'
-  );
-  return +r.ask * (1 + COINBASE_SWAP_FEE_BPS / 10_000);
-}
-
 // Wrap USD/USDC-quoted fetchers so they return AUD-converted values. rateFn
 // supplies AUD-per-USDC (incl. swap fee); defaults to the CoinJar route.
 function convertedQuote(usdFetch, rateFn = fetchAudPerUsdc) {
@@ -360,20 +350,18 @@ const exchanges = {
     takerFeeBps: 60,
     feeBakedIn: false,
     conversion: true,
-    conversionNote:
-      'AUD→USDC converted on Coinbase itself (incl. ~0.6% swap) — one venue, no inter-exchange transfer.',
     fetch: convertedQuote(async () => {
       const r = await fetchJSON(
         'https://api.exchange.coinbase.com/products/BTC-USD/ticker'
       );
       return { bid: +r.bid, ask: +r.ask, last: +r.price };
-    }, fetchAudPerUsdcCoinbase),
+    }),
     depthFetch: convertedDepth(async () => {
       const r = await fetchJSON(
         'https://api.exchange.coinbase.com/products/BTC-USD/book?level=2'
       );
       return { bids: r.bids, asks: r.asks };
-    }, fetchAudPerUsdcCoinbase),
+    }),
   },
   pepperstone: {
     label: 'Pepperstone Crypto',
