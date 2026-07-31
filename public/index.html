@@ -153,6 +153,9 @@
       .card.promo-off .promo-ticker {
         display: none;
       }
+      .card.hidden-venue {
+        display: none;
+      }
       .amount {
         display: flex;
         align-items: center;
@@ -633,6 +636,11 @@
           </div>
         </div>
         <div class="controls">
+          <label class="promo-toggle" title="Show only venues with a native BTC/AUD spot market — hide the USD-routed (USDC-converted) exchanges">
+            <input type="checkbox" id="native-toggle" />
+            <span class="track"><span class="thumb"></span></span>
+            <span class="lbl">Native AUD only</span>
+          </label>
           <label class="promo-toggle" title="Apply Pepperstone's 0% promotional fee, or use its standard 0.10% taker fee">
             <input type="checkbox" id="promo-toggle" checked />
             <span class="track"><span class="thumb"></span></span>
@@ -671,6 +679,7 @@
       const amountInput = document.getElementById('amount');
       const fetchAllBtn = document.getElementById('fetch-all');
       const promoToggle = document.getElementById('promo-toggle');
+      const nativeToggle = document.getElementById('native-toggle');
 
       const fmtAud = (n) =>
         Number.isFinite(n)
@@ -734,6 +743,7 @@
         card.dataset.stdfee = ex.standardFeeBps ?? ex.takerFeeBps;
         card.dataset.promofee = ex.promo ? ex.promo.feeBps : '';
         card.dataset.haspromo = ex.promo ? '1' : '0';
+        card.dataset.conversion = ex.conversion ? '1' : '0';
         const feeLabel = ex.promo
           ? '0% — special offer'
           : ex.feeBakedIn
@@ -1092,7 +1102,12 @@
       }
 
       function markWinner() {
-        const cards = [...grid.querySelectorAll('.card.loaded')];
+        const cards = [...grid.querySelectorAll('.card.loaded')].filter(
+          (c) => !c.classList.contains('hidden-venue')
+        );
+        grid
+          .querySelectorAll('.card.hidden-venue.winner')
+          .forEach((c) => c.classList.remove('winner'));
         if (cards.length < 2) return;
         cards.forEach((c) => c.classList.remove('winner'));
         const sorted = cards
@@ -1119,8 +1134,20 @@
         markWinner();
       });
 
+      // Show only native BTC/AUD venues (hide the USD-routed conversion ones).
+      function applyVenueFilter() {
+        grid.querySelectorAll('.card').forEach((card) => {
+          card.classList.toggle(
+            'hidden-venue',
+            nativeToggle.checked && card.dataset.conversion === '1'
+          );
+        });
+        markWinner();
+      }
+
       fetchAllBtn.addEventListener('click', fetchAll);
       promoToggle.addEventListener('change', refreshPromoView);
+      nativeToggle.addEventListener('change', applyVenueFilter);
 
       (async () => {
         const r = await fetch('/api/exchanges');
