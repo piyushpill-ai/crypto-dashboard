@@ -112,11 +112,12 @@ async function fetchKrakenTicker() {
 
 // ---- USD-routed global venues --------------------------------------------
 // You can't buy BTC/AUD directly on these; the modelled journey is
-// AUD -> USDC (swap) -> BTC on the venue's USD/USDC book. The AUD-per-USDC rate
-// comes from CoinJar's real USDC/AUD book — the cheapest AU swap route —
-// and CONVERSION_SWAP_FEE_BPS is CoinJar's 0.10% taker (consistent with the
-// rate source). Excludes moving USDC between exchanges (flagged in the UI).
-const CONVERSION_SWAP_FEE_BPS = 10;
+// AUD -> USDC (swap) -> move USDC to the venue -> BTC on its USD/USDC book.
+// The AUD-per-USDC rate comes from CoinJar's real USDC/AUD book (cheapest AU
+// swap). CONVERSION_SWAP_FEE_BPS is the ALL-IN conversion + routing cost — the
+// ~0.10% swap fee PLUS withdrawing/transferring the USDC to the venue —
+// modelled conservatively at ~0.5% for the order sizes tested.
+const CONVERSION_SWAP_FEE_BPS = 50;
 
 async function fetchAudPerUsdc() {
   const r = await fetchJSON(

@@ -743,7 +743,7 @@
           ? `<div class="promo-ticker">✦ ${ex.promo.label}<span>${ex.promo.note}</span></div>`
           : '';
         const conversionMarkup = ex.conversion
-          ? `<div class="conv-note">↔ ${ex.conversionNote || 'Routed via AUD→USDC (swapped on CoinJar, ~0.1%). Excludes moving USDC between exchanges.'}</div>`
+          ? `<div class="conv-note">↔ ${ex.conversionNote || 'Priced via AUD→USDC, then transferred to the exchange to buy BTC — modelled at ~0.5% all-in conversion + routing.'}</div>`
           : '';
         const depthMarkup = ex.orderBook
           ? `
