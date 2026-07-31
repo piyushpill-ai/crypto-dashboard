@@ -95,6 +95,63 @@
         display: flex;
         gap: 10px;
         align-items: center;
+        flex-wrap: wrap;
+      }
+      .promo-toggle {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        cursor: pointer;
+        user-select: none;
+        background: var(--bg-2);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 8px 12px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .promo-toggle input {
+        position: absolute;
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .promo-toggle .track {
+        width: 34px;
+        height: 20px;
+        border-radius: 999px;
+        background: var(--line);
+        position: relative;
+        transition: background 0.15s ease;
+        flex: none;
+      }
+      .promo-toggle .thumb {
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+        transition: transform 0.15s ease;
+      }
+      .promo-toggle input:checked + .track {
+        background: var(--accent);
+      }
+      .promo-toggle input:checked + .track .thumb {
+        transform: translateX(14px);
+      }
+      .promo-toggle input:focus-visible + .track {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .promo-toggle input:checked ~ .lbl {
+        color: var(--text);
+        font-weight: 500;
+      }
+      .card.promo-off .promo-ticker {
+        display: none;
       }
       .amount {
         display: flex;
@@ -576,6 +633,11 @@
           </div>
         </div>
         <div class="controls">
+          <label class="promo-toggle" title="Apply Pepperstone's 0% promotional fee, or use its standard 0.10% taker fee">
+            <input type="checkbox" id="promo-toggle" checked />
+            <span class="track"><span class="thumb"></span></span>
+            <span class="lbl">Pepperstone 0% promo</span>
+          </label>
           <label class="amount">
             <span>A$</span>
             <input id="amount" type="number" value="500" min="1" step="10" />
@@ -608,6 +670,7 @@
       const grid = document.getElementById('grid');
       const amountInput = document.getElementById('amount');
       const fetchAllBtn = document.getElementById('fetch-all');
+      const promoToggle = document.getElementById('promo-toggle');
 
       const fmtAud = (n) =>
         Number.isFinite(n)
@@ -668,6 +731,9 @@
         card.dataset.fee = ex.takerFeeBps;
         card.dataset.baked = ex.feeBakedIn ? '1' : '0';
         card.dataset.orderbook = ex.orderBook ? '1' : '0';
+        card.dataset.stdfee = ex.standardFeeBps ?? ex.takerFeeBps;
+        card.dataset.promofee = ex.promo ? ex.promo.feeBps : '';
+        card.dataset.haspromo = ex.promo ? '1' : '0';
         const feeLabel = ex.promo
           ? '0% — special offer'
           : ex.feeBakedIn
@@ -712,7 +778,7 @@
           <div class="rows">
             <div class="row empty"><div class="k">Bid</div><div class="v bid" data-bid>—</div></div>
             <div class="row empty"><div class="k">Ask</div><div class="v ask" data-ask>—</div></div>
-            <div class="row empty"><div class="k">Taker fee</div><div class="v">${feeLabel}</div></div>
+            <div class="row empty"><div class="k">Taker fee</div><div class="v" data-fee-label>${feeLabel}</div></div>
           </div>
           <div class="btc-line">
             <div class="k">Estimated BTC received for A$<span data-amount>500</span></div>
@@ -800,6 +866,36 @@
         return 'bad';
       }
 
+      // Taker fee (bps) to apply to a card, honouring the promo toggle: a promo
+      // venue uses its standard fee when the toggle is off, its promo fee when on.
+      function feeBpsFor(card) {
+        const hasPromo = card.dataset.haspromo === '1';
+        return hasPromo && promoToggle.checked
+          ? +card.dataset.promofee
+          : +card.dataset.stdfee;
+      }
+      function feeLabelFor(card) {
+        const hasPromo = card.dataset.haspromo === '1';
+        if (hasPromo && promoToggle.checked) {
+          const pf = +card.dataset.promofee;
+          return (pf === 0 ? '0%' : fmtPct(pf / 100)) + ' — special offer';
+        }
+        if (card.dataset.baked === '1') return 'baked in';
+        return fmtPct(feeBpsFor(card) / 100);
+      }
+      // Re-apply the promo toggle across the board: update promo cards' fee
+      // label + ticker, then re-rank.
+      function refreshPromoView() {
+        grid.querySelectorAll('.card').forEach((card) => {
+          if (card.dataset.haspromo !== '1') return;
+          card.classList.toggle('promo-off', !promoToggle.checked);
+          const fl = card.querySelector('[data-fee-label]');
+          if (fl) fl.textContent = feeLabelFor(card);
+        });
+        grid.querySelectorAll('.card.loaded').forEach(updateEffective);
+        markWinner();
+      }
+
       // Effective price to buy the entered A$ amount. For order-book venues,
       // walk the ask ladder (volume-weighted average fill) × (1 + fee); for
       // brokers / before depth loads / books too thin, fall back to top of book.
@@ -808,8 +904,8 @@
         if (!topeff) return;
         const amount = +amountInput.value || 0;
         const baked = card.dataset.baked === '1';
-        const fee = +card.dataset.fee / 10000;
-        let eff = topeff;
+        const fee = feeBpsFor(card) / 10000;
+        let eff = baked ? topeff : +card.dataset.topask * (1 + fee);
         const asks = card.__asks;
         if (asks && !baked && amount > 0) {
           const w = walkBook(asks, amount);
@@ -1024,11 +1120,15 @@
       });
 
       fetchAllBtn.addEventListener('click', fetchAll);
+      promoToggle.addEventListener('change', refreshPromoView);
 
       (async () => {
         const r = await fetch('/api/exchanges');
         const list = await r.json();
         list.forEach((ex) => grid.appendChild(renderCard(ex)));
+        // Default the toggle to the promo's real live state, then sync labels.
+        promoToggle.checked = list.some((ex) => ex.promoActive);
+        refreshPromoView();
       })();
     </script>
   </body>

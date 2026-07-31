@@ -508,7 +508,9 @@ const server = http.createServer(async (req, res) => {
 
   if (req.url === '/api/exchanges') {
     const list = Object.entries(exchanges).map(([id, v]) => {
-      const promo = activePromo(v);
+      // Expose the promo whenever one is DEFINED (not only while live), plus
+      // whether it is currently active, so the UI can toggle it either way.
+      const p = v.promo;
       return {
         id,
         label: v.label,
@@ -520,9 +522,15 @@ const server = http.createServer(async (req, res) => {
         conversion: !!v.conversion,
         conversionNote: v.conversionNote || null,
         logo: LOGOS[id] || null,
-        promo: promo
-          ? { label: promo.label, note: promo.note, untilIso: promo.untilIso }
+        promo: p
+          ? {
+              label: p.label,
+              note: p.note,
+              untilIso: p.untilIso,
+              feeBps: p.feeBps,
+            }
           : null,
+        promoActive: !!activePromo(v),
       };
     });
     res.setHeader('Content-Type', 'application/json');
