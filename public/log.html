@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Run History — BTC/AUD Comparison Log</title>
+    <style>
+      :root {
+        --bg-0: #f4f6f9;
+        --bg-1: #ffffff;
+        --bg-2: #eceef3;
+        --line: #e0e4ec;
+        --text: #14171f;
+        --muted: #5f6b7e;
+        --faint: #8a91a0;
+        --accent: #7c5cff;
+        --accent-2: #00a98f;
+        --good: #0c9d63;
+        --warn: #b5730a;
+        --bad: #e0384f;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background:
+          radial-gradient(1200px 700px at 10% -10%, rgba(124, 92, 255, 0.1), transparent 60%),
+          radial-gradient(900px 600px at 120% 10%, rgba(0, 169, 143, 0.08), transparent 60%),
+          var(--bg-0);
+        color: var(--text);
+        min-height: 100vh;
+        padding: 40px 24px 80px;
+      }
+      .wrap { max-width: 1080px; margin: 0 auto; }
+      header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+      h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
+      h1 .dot { display: inline-block; width: 10px; height: 10px; background: var(--accent-2); border-radius: 50%; margin-right: 10px; box-shadow: 0 0 12px var(--accent-2); }
+      .sub { color: var(--muted); margin-top: 4px; font-size: 14px; }
+      .back { color: var(--accent); text-decoration: none; font-size: 14px; font-weight: 500; }
+      .back:hover { text-decoration: underline; }
+
+      .panel { background: var(--bg-1); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 1px 3px rgba(17,20,28,0.05); }
+
+      /* leaderboard */
+      .lead { padding: 18px 20px; margin-bottom: 18px; }
+      .lead h2 { margin: 0 0 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--faint); font-weight: 600; }
+      .lead-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+      .lead-row { display: flex; align-items: center; gap: 10px; }
+      .lead-row .logo { height: 22px; width: auto; max-width: 60px; object-fit: contain; flex: none; }
+      .lead-row .name { font-size: 14px; font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .lead-row .cnt { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); white-space: nowrap; }
+      .lead-row .bar { height: 6px; border-radius: 4px; background: var(--accent); min-width: 2px; }
+      .lead-track { flex: 1.4; height: 6px; background: var(--bg-2); border-radius: 4px; overflow: hidden; }
+
+      /* controls */
+      .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+      .seg { display: inline-flex; background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 2px; }
+      .seg button { font-family: inherit; border: none; background: transparent; color: var(--muted); padding: 6px 12px; border-radius: 8px; font-size: 13px; cursor: pointer; font-weight: 500; }
+      .seg button.on { background: var(--bg-1); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+      .lbl { font-size: 12px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.06em; margin-right: 2px; }
+      .toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 7px 12px; font-size: 13px; color: var(--muted); }
+      .toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+      .toggle .track { width: 32px; height: 19px; border-radius: 999px; background: var(--line); position: relative; flex: none; transition: background 0.15s; }
+      .toggle .thumb { position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.25); transition: transform 0.15s; }
+      .toggle input:checked + .track { background: var(--accent); }
+      .toggle input:checked + .track .thumb { transform: translateX(13px); }
+      .toggle input:checked ~ .tlbl { color: var(--text); font-weight: 500; }
+
+      /* table */
+      .table-scroll { overflow-x: auto; }
+      table { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 640px; }
+      thead th { position: sticky; top: 0; background: var(--bg-1); text-align: left; padding: 12px 16px; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); font-weight: 600; border-bottom: 1px solid var(--line); }
+      td { padding: 11px 16px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+      tbody tr.run { cursor: pointer; }
+      tbody tr.run:hover { background: var(--bg-2); }
+      td.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+      .winner-cell { display: flex; align-items: center; gap: 9px; }
+      .winner-cell .logo { height: 20px; width: auto; max-width: 54px; object-fit: contain; flex: none; }
+      .winner-cell .nm { font-weight: 600; }
+      .badge { font-size: 10.5px; font-family: 'SF Mono', Menlo, monospace; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+      .badge.promo { color: var(--accent-2); border-color: var(--accent-2); }
+      .gap { color: var(--muted); font-variant-numeric: tabular-nums; }
+      .caret { color: var(--faint); font-size: 11px; transition: transform 0.15s; display: inline-block; }
+      tr.run.open .caret { transform: rotate(90deg); }
+
+      /* detail */
+      tr.detail td { background: var(--bg-2); padding: 0; }
+      .detail-inner { padding: 8px 16px 14px 44px; }
+      .detail-inner .drow { display: grid; grid-template-columns: 24px 1fr auto auto; align-items: center; gap: 10px; padding: 4px 0; font-size: 13px; border-bottom: 1px dashed var(--line); }
+      .detail-inner .drow:last-child { border-bottom: none; }
+      .detail-inner .rank { color: var(--faint); font-variant-numeric: tabular-nums; font-size: 12px; }
+      .detail-inner .dnm { display: flex; align-items: center; gap: 8px; }
+      .detail-inner .dnm img { height: 16px; width: auto; max-width: 40px; object-fit: contain; }
+      .detail-inner .dfee { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+      .detail-inner .dprice { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+      .detail-inner .drow.win .dprice { color: var(--good); }
+
+      .empty { padding: 40px; text-align: center; color: var(--muted); }
+      footer { margin-top: 24px; color: var(--faint); font-size: 12px; }
+      .count { color: var(--muted); font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div>
+          <h1><span class="dot"></span>Run History &amp; Log</h1>
+          <div class="sub">Every 4-hourly sample of the BTC/AUD comparison — an immutable, timestamped record.</div>
+        </div>
+        <a class="back" href="/">← Back to dashboard</a>
+      </header>
+
+      <div class="panel lead">
+        <h2 id="lead-title">Cheapest venue — win count</h2>
+        <div class="lead-grid" id="leaderboard"></div>
+      </div>
+
+      <div class="controls">
+        <span class="lbl">Order size</span>
+        <div class="seg" id="metric-seg">
+          <button data-metric="effective_ask">Top of book</button>
+          <button data-metric="eff_1k" class="on">A$1k</button>
+          <button data-metric="eff_10k">A$10k</button>
+          <button data-metric="eff_100k">A$100k</button>
+        </div>
+        <span class="lbl">Period</span>
+        <div class="seg" id="period-seg">
+          <button data-days="30" class="on">30 days</button>
+          <button data-days="9999">All</button>
+        </div>
+        <label class="toggle" title="Only rank venues with a native BTC/AUD market (exclude USD-routed exchanges)">
+          <input type="checkbox" id="native-toggle" />
+          <span class="track"><span class="thumb"></span></span>
+          <span class="tlbl">Native AUD only</span>
+        </label>
+        <span class="count" id="run-count"></span>
+      </div>
+
+      <div class="panel table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:220px">Run (AEST)</th>
+              <th>Cheapest venue</th>
+              <th class="num">Effective price</th>
+              <th class="num">Margin vs 2nd</th>
+              <th class="num">Venues</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <div class="empty" id="empty" style="display:none">No runs in this period.</div>
+      </div>
+
+      <footer id="foot"></footer>
+    </div>
+
+    <script>
+      const CONV = new Set(['binance', 'kucoin', 'cryptocom', 'coinbase']);
+      let META = {}; // id -> {label, logo, conversion}
+      let RUNS = []; // [{ts, rows:[{id,metricVal,...}]}]
+      let metric = 'eff_1k';
+      let days = 30;
+      let nativeOnly = false;
+
+      const fmtAud = (n) =>
+        Number.isFinite(n)
+          ? n.toLocaleString('en-AU', { style: 'currency', currency: 'AUD', maximumFractionDigits: 0 })
+          : '—';
+      const fmtAudP = (n) =>
+        Number.isFinite(n)
+          ? n.toLocaleString('en-AU', { style: 'currency', currency: 'AUD', maximumFractionDigits: 2 })
+          : '—';
+
+      function fmtRun(ts) {
+        const d = new Date(ts);
+        const tz = 'Australia/Sydney';
+        const date = d.toLocaleDateString('en-AU', { timeZone: tz, day: 'numeric', month: 'short', year: 'numeric' });
+        const time = d.toLocaleTimeString('en-AU', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
+        return date + ' · ' + time;
+      }
+      const logoUrl = (id) => (META[id] && META[id].logo ? '/logos/' + encodeURIComponent(META[id].logo) : '');
+      const label = (id) => (META[id] && META[id].label) || id;
+
+      // effective value for a sample using the selected metric, falling back to
+      // top-of-book effective_ask where the sized column is missing (old rows).
+      function metricVal(s) {
+        const v = parseFloat(s[metric]);
+        if (Number.isFinite(v)) return v;
+        const f = parseFloat(s.effective_ask);
+        return Number.isFinite(f) ? f : NaN;
+      }
+
+      function build() {
+        const rowsEl = document.getElementById('rows');
+        const cutoff = Date.now() - days * 86400000;
+        const runs = RUNS.filter((r) => new Date(r.ts).getTime() >= cutoff);
+
+        // per-run winner + leaderboard
+        const wins = {};
+        let counted = 0;
+        const rendered = [];
+        for (const run of runs) {
+          let venues = run.rows.filter((s) => Number.isFinite(metricVal(s)));
+          if (nativeOnly) venues = venues.filter((s) => !CONV.has(s.exchange));
+          if (venues.length < 2) continue;
+          counted++;
+          venues.sort((a, b) => metricVal(a) - metricVal(b));
+          const win = venues[0], second = venues[1];
+          wins[win.exchange] = (wins[win.exchange] || 0) + 1;
+          const margin = (metricVal(second) - metricVal(win)) / metricVal(win) * 100;
+          rendered.push({ ts: run.ts, win, second, margin, venues });
+        }
+
+        // leaderboard
+        const lb = Object.entries(wins).sort((a, b) => b[1] - a[1]);
+        const max = lb.length ? lb[0][1] : 1;
+        document.getElementById('leaderboard').innerHTML = lb.map(([id, c]) => `
+          <div class="lead-row">
+            ${logoUrl(id) ? `<img class="logo" src="${logoUrl(id)}" alt="" />` : ''}
+            <span class="name">${label(id)}</span>
+            <span class="lead-track"><span class="bar" style="width:${(c / max) * 100}%"></span></span>
+            <span class="cnt">${c} (${((c / counted) * 100).toFixed(0)}%)</span>
+          </div>`).join('') || '<div class="count">No data for this view.</div>';
+        document.getElementById('lead-title').textContent =
+          `Cheapest venue — win count (${counted} runs, ${metricLabel()}${nativeOnly ? ', native AUD only' : ''})`;
+
+        // table
+        document.getElementById('run-count').textContent = `${counted} runs`;
+        document.getElementById('empty').style.display = counted ? 'none' : 'block';
+        rowsEl.innerHTML = rendered.map((r, i) => {
+          const promo = (+r.win.taker_fee_bps === 0) && r.win.fee_baked_in !== 'true';
+          const detail = r.venues.slice(0, 14).map((s, j) => `
+            <div class="drow ${j === 0 ? 'win' : ''}">
+              <span class="rank">${j + 1}</span>
+              <span class="dnm">${logoUrl(s.exchange) ? `<img src="${logoUrl(s.exchange)}" alt="" />` : ''}${label(s.exchange)}</span>
+              <span class="dfee">${(+s.taker_fee_bps / 100).toFixed(2)}% fee</span>
+              <span class="dprice">${fmtAudP(metricVal(s))}</span>
+            </div>`).join('');
+          return `
+            <tr class="run" data-i="${i}">
+              <td>${fmtRun(r.ts)} <span class="caret">▶</span></td>
+              <td><span class="winner-cell">${logoUrl(r.win.exchange) ? `<img class="logo" src="${logoUrl(r.win.exchange)}" alt="" />` : ''}<span class="nm">${label(r.win.exchange)}</span>${promo ? '<span class="badge promo">0% promo</span>' : ''}</span></td>
+              <td class="num">${fmtAud(metricVal(r.win))}</td>
+              <td class="num gap">${r.margin < 0.001 ? '&lt;0.001%' : '+' + r.margin.toFixed(3) + '%'}</td>
+              <td class="num">${r.venues.length}</td>
+            </tr>
+            <tr class="detail" data-d="${i}" style="display:none"><td colspan="5"><div class="detail-inner">${detail}</div></td></tr>`;
+        }).join('');
+
+        rowsEl.querySelectorAll('tr.run').forEach((tr) => {
+          tr.addEventListener('click', () => {
+            tr.classList.toggle('open');
+            const d = rowsEl.querySelector(`tr.detail[data-d="${tr.dataset.i}"]`);
+            if (d) d.style.display = d.style.display === 'none' ? 'table-row' : 'none';
+          });
+        });
+      }
+
+      function metricLabel() {
+        return { effective_ask: 'top of book', eff_1k: 'A$1,000', eff_10k: 'A$10,000', eff_100k: 'A$100,000' }[metric];
+      }
+
+      // seg controls
+      document.getElementById('metric-seg').addEventListener('click', (e) => {
+        const b = e.target.closest('button'); if (!b) return;
+        metric = b.dataset.metric;
+        document.querySelectorAll('#metric-seg button').forEach((x) => x.classList.toggle('on', x === b));
+        build();
+      });
+      document.getElementById('period-seg').addEventListener('click', (e) => {
+        const b = e.target.closest('button'); if (!b) return;
+        days = +b.dataset.days;
+        document.querySelectorAll('#period-seg button').forEach((x) => x.classList.toggle('on', x === b));
+        build();
+      });
+      document.getElementById('native-toggle').addEventListener('change', (e) => {
+        nativeOnly = e.target.checked; build();
+      });
+
+      (async () => {
+        const [exR, hiR] = await Promise.all([fetch('/api/exchanges'), fetch('/api/history')]);
+        const exchanges = await exR.json();
+        exchanges.forEach((e) => (META[e.id] = { label: e.label, logo: e.logo, conversion: e.conversion }));
+        const { samples } = await hiR.json();
+        const byTs = {};
+        for (const s of samples) (byTs[s.timestamp] ||= []).push(s);
+        RUNS = Object.keys(byTs).sort((a, b) => new Date(b) - new Date(a)).map((ts) => ({ ts, rows: byTs[ts] }));
+        const first = samples.length ? samples[0].timestamp : null;
+        document.getElementById('foot').textContent =
+          `${RUNS.length} total runs logged since ${first ? new Date(first).toLocaleDateString('en-AU') : '—'} · sampled every 4 hours · source: data/samples.csv`;
+        build();
+      })();
+    </script>
+  </body>
+</html>

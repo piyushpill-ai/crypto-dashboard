@@ -495,6 +495,12 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.url === '/log' || req.url === '/history' || req.url === '/log.html') {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.end(fs.readFileSync(path.join(__dirname, 'public', 'log.html')));
+    return;
+  }
+
   if (req.url === '/api/exchanges') {
     const list = Object.entries(exchanges).map(([id, v]) => {
       // Expose the promo whenever one is DEFINED (not only while live), plus
