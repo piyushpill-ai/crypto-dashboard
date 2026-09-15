@@ -369,14 +369,6 @@ const exchanges = {
     note: 'Order book top (WebSocket)',
     takerFeeBps: 10,
     feeBakedIn: false,
-    // Launch promo: 0% trading fee through end of July 2026 (AEST), then the
-    // standard 0.10% taker resumes automatically.
-    promo: {
-      label: 'Special offer',
-      note: '0% trading fee until 31 Jul 2026',
-      feeBps: 0,
-      untilIso: '2026-07-31T23:59:59+10:00',
-    },
     fetch: fetchPepperstoneOneShot,
     depthFetch: async () => {
       const { bids, asks } = await fetchPepperstoneOrderBook();
@@ -503,15 +495,14 @@ const server = http.createServer(async (req, res) => {
 
   if (req.url === '/api/exchanges') {
     const list = Object.entries(exchanges).map(([id, v]) => {
-      // Expose the promo whenever one is DEFINED (not only while live), plus
-      // whether it is currently active, so the UI can toggle it either way.
-      const p = v.promo;
+      // Only a promo that is currently live is exposed; takerFeeBps already
+      // reflects it, so the UI always shows the fee actually charged now.
+      const p = activePromo(v);
       return {
         id,
         label: v.label,
         note: v.note,
         takerFeeBps: currentFeeBps(v),
-        standardFeeBps: v.takerFeeBps,
         feeBakedIn: v.feeBakedIn,
         orderBook: !!v.depthFetch,
         conversion: !!v.conversion,
@@ -525,7 +516,6 @@ const server = http.createServer(async (req, res) => {
               feeBps: p.feeBps,
             }
           : null,
-        promoActive: !!activePromo(v),
       };
     });
     res.setHeader('Content-Type', 'application/json');
