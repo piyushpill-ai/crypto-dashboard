@@ -3,11 +3,15 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
+// An unreachable host would otherwise hang until the OS connect timeout
+// (a minute or more), stalling every quote waiting on it.
+const FETCH_TIMEOUT_MS = 10_000;
+
 function fetchJSON(url, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const headers = { 'User-Agent': 'crypto-dashboard/1.0', ...extraHeaders };
     https
-      .get(url, { headers }, (res) => {
+      .get(url, { headers, timeout: FETCH_TIMEOUT_MS }, (res) => {
         let data = '';
         res.on('data', (c) => (data += c));
         res.on('end', () => {
@@ -17,6 +21,9 @@ function fetchJSON(url, extraHeaders = {}) {
             reject(new Error(`Bad JSON from ${url}: ${e.message}`));
           }
         });
+      })
+      .on('timeout', function () {
+        this.destroy(new Error(`Timeout fetching ${url}`));
       })
       .on('error', reject);
   });
@@ -218,6 +225,25 @@ const exchanges = {
         'https://api.btcmarkets.net/v3/markets/BTC-AUD/orderbook?level=2'
       );
       return normalizeDepth(r.bids, r.asks);
+    },
+  },
+  coinbyte: {
+    label: 'CoinByte',
+    note: 'Order book top — 0.10% taker (advertised "from 0.1%")',
+    takerFeeBps: 10,
+    feeBakedIn: false,
+    fetch: async () => {
+      const r = await fetchJSON('https://api.coinbyteapps.com/market/tickers');
+      const t = (r.data || []).find((x) => x.symbol === 'btcaud');
+      if (!t) throw new Error(`CoinByte: no btcaud ticker (${r['err-msg'] || r.status})`);
+      return { bid: +t.bid, ask: +t.ask, last: +t.close };
+    },
+    depthFetch: async () => {
+      const r = await fetchJSON(
+        'https://api.coinbyteapps.com/market/depth?symbol=btcaud'
+      );
+      if (!r.data) throw new Error(`CoinByte depth: ${r['err-msg'] || r.status}`);
+      return normalizeDepth(r.data.bids, r.data.asks);
     },
   },
   coinjar: {
@@ -460,6 +486,7 @@ const LOGOS = {
   digitalsurge: 'digital surge.png',
   independentreserve: 'independent reserve.svg',
   btcmarkets: 'btc markets.png',
+  coinbyte: 'coinbyte.png',
   coinjar: 'coinjar.png',
   kraken: 'kraken pro.png',
   krakeninstant: 'kraken.png',
