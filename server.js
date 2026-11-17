@@ -526,11 +526,13 @@ function walkBookAvg(asks, sizeAud) {
 
 // Effective (fee-inclusive) price to buy `sizeAud` worth: walk the book when
 // depth is available, otherwise fall back to the top-of-book effective price.
+// Returns null when the book is too thin to fill the size — falling back to
+// top of book there would rank a venue as cheap for an order it can't fill.
 function effectiveForSize(ex, quote, depthAsks, sizeAud) {
   if (ex.feeBakedIn) return quote.effectiveAsk; // spread-inclusive; size-agnostic
   if (depthAsks && depthAsks.length) {
     const avg = walkBookAvg(depthAsks, sizeAud);
-    if (avg) return avg * (1 + currentFeeBps(ex) / 10_000);
+    return avg ? avg * (1 + currentFeeBps(ex) / 10_000) : null;
   }
   return quote.effectiveAsk;
 }

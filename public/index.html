@@ -872,7 +872,8 @@
 
       // Effective price to buy the entered A$ amount. For order-book venues,
       // walk the ask ladder (volume-weighted average fill) × (1 + fee); for
-      // brokers / before depth loads / books too thin, fall back to top of book.
+      // brokers / before depth loads, fall back to top of book. A book too thin
+      // to fill the amount gets no price, so it drops out of the ranking.
       function updateEffective(card) {
         const topeff = +card.dataset.topeff;
         if (!topeff) return;
@@ -883,7 +884,7 @@
         const asks = card.__asks;
         if (asks && !baked && amount > 0) {
           const w = walkBook(asks, amount);
-          if (w) eff = w.avg * (1 + fee);
+          eff = w ? w.avg * (1 + fee) : NaN;
         }
         card.dataset.effective = eff;
         const set = (sel, val) => {
@@ -891,7 +892,7 @@
           if (el) el.textContent = val;
         };
         set('[data-amount]', amount);
-        set('[data-btc]', fmtBtc(eff ? amount / eff : 0));
+        set('[data-btc]', Number.isNaN(eff) ? 'Book too thin' : fmtBtc(eff ? amount / eff : 0));
       }
 
       async function fetchDepth(id) {
@@ -1067,13 +1068,13 @@
 
       function markWinner() {
         const cards = [...grid.querySelectorAll('.card.loaded')].filter(
-          (c) => !c.classList.contains('hidden-venue')
+          (c) =>
+            !c.classList.contains('hidden-venue') && isFinite(+c.dataset.effective)
         );
         grid
-          .querySelectorAll('.card.hidden-venue.winner')
+          .querySelectorAll('.card.winner')
           .forEach((c) => c.classList.remove('winner'));
         if (cards.length < 2) return;
-        cards.forEach((c) => c.classList.remove('winner'));
         const sorted = cards
           .map((c) => ({ card: c, eff: +c.dataset.effective }))
           .sort((a, b) => a.eff - b.eff);

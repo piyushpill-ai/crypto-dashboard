@@ -53,8 +53,9 @@ async function main() {
     if (r.status === 'fulfilled') {
       const { quote, depthAsks } = r.value;
       const ex = exchanges[id];
+      // Blank (not top of book) where the book is too thin to fill the size.
       const effs = SIZES.map((s) =>
-        effectiveForSize(ex, quote, depthAsks, s).toFixed(4)
+        effectiveForSize(ex, quote, depthAsks, s)?.toFixed(4) ?? ''
       );
       rows.push(
         [
