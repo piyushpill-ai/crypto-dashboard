@@ -2,6 +2,7 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 
 // An unreachable host would otherwise hang until the OS connect timeout
 // (a minute or more), stalling every quote waiting on it.
@@ -85,6 +86,68 @@ function fetchPepperstoneOrderBook() {
 
 async function fetchPepperstoneOneShot() {
   const { bids, asks } = await fetchPepperstoneOrderBook();
+  const bid = Math.max(...bids.map((b) => +b[0]));
+  const ask = Math.min(...asks.map((a) => +a[0]));
+  return { bid, ask, last: (bid + ask) / 2 };
+}
+
+// CoinByte has no REST ticker; best bid/ask come only from its public
+// WebSocket (endpoint and protocol confirmed by CoinByte support, Nov 2026).
+// Frames are gzipped, the server pings and expects a matching pong, and like
+// Pepperstone the book fills in over the first frames — so keep the fullest.
+const COINBYTE_COLLECT_MS = 1500;
+
+function fetchCoinbyteOrderBook() {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket('wss://www.coinbyte.com.au/-/s/hbcloud/ws');
+    ws.binaryType = 'arraybuffer';
+    let best = null; // fullest frame seen (by total level count)
+    let collectTimer = null;
+    const finish = (result, err) => {
+      clearTimeout(hardTimeout);
+      clearTimeout(collectTimer);
+      try {
+        ws.close();
+      } catch {}
+      err ? reject(err) : resolve(result);
+    };
+    const hardTimeout = setTimeout(() => {
+      best ? finish(best) : finish(null, new Error('CoinByte WS timeout'));
+    }, 8000);
+    ws.addEventListener('open', () => {
+      ws.send(JSON.stringify({ sub: 'market.btcaud.depth.step0', id: '1' }));
+    });
+    ws.addEventListener('message', (e) => {
+      try {
+        const msg = JSON.parse(
+          typeof e.data === 'string'
+            ? e.data
+            : zlib.gunzipSync(Buffer.from(e.data)).toString()
+        );
+        if (msg.ping) {
+          ws.send(JSON.stringify({ pong: msg.ping }));
+          return;
+        }
+        const tick = msg.tick;
+        if (tick && tick.bids?.length && tick.asks?.length) {
+          const levels = tick.bids.length + tick.asks.length;
+          if (!best || levels > best.bids.length + best.asks.length) {
+            best = { bids: tick.bids, asks: tick.asks };
+          }
+          if (!collectTimer) {
+            collectTimer = setTimeout(() => finish(best), COINBYTE_COLLECT_MS);
+          }
+        }
+      } catch {}
+    });
+    ws.addEventListener('error', () => {
+      finish(null, new Error('CoinByte WS error'));
+    });
+  });
+}
+
+async function fetchCoinbyteOneShot() {
+  const { bids, asks } = await fetchCoinbyteOrderBook();
   const bid = Math.max(...bids.map((b) => +b[0]));
   const ask = Math.min(...asks.map((a) => +a[0]));
   return { bid, ask, last: (bid + ask) / 2 };
@@ -229,21 +292,13 @@ const exchanges = {
   },
   coinbyte: {
     label: 'CoinByte',
-    note: 'Order book top — 0.10% taker (advertised "from 0.1%")',
+    note: 'Order book top (WebSocket) — 0.10% taker',
     takerFeeBps: 10,
     feeBakedIn: false,
-    fetch: async () => {
-      const r = await fetchJSON('https://api.coinbyteapps.com/market/tickers');
-      const t = (r.data || []).find((x) => x.symbol === 'btcaud');
-      if (!t) throw new Error(`CoinByte: no btcaud ticker (${r['err-msg'] || r.status})`);
-      return { bid: +t.bid, ask: +t.ask, last: +t.close };
-    },
+    fetch: fetchCoinbyteOneShot,
     depthFetch: async () => {
-      const r = await fetchJSON(
-        'https://api.coinbyteapps.com/market/depth?symbol=btcaud'
-      );
-      if (!r.data) throw new Error(`CoinByte depth: ${r['err-msg'] || r.status}`);
-      return normalizeDepth(r.data.bids, r.data.asks);
+      const { bids, asks } = await fetchCoinbyteOrderBook();
+      return normalizeDepth(bids, asks);
     },
   },
   coinjar: {
