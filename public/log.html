@@ -184,7 +184,10 @@
 
       // effective value for a sample using the selected metric, falling back to
       // top-of-book effective_ask where the sized column is missing (old rows).
+      // A present-but-blank column means the book couldn't fill that size, so
+      // the venue sits out that run rather than ranking at top of book.
       function metricVal(s) {
+        if (s[metric] === '') return NaN;
         const v = parseFloat(s[metric]);
         if (Number.isFinite(v)) return v;
         const f = parseFloat(s.effective_ask);

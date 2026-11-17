@@ -2,12 +2,17 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
+
+// An unreachable host would otherwise hang until the OS connect timeout
+// (a minute or more), stalling every quote waiting on it.
+const FETCH_TIMEOUT_MS = 10_000;
 
 function fetchJSON(url, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const headers = { 'User-Agent': 'crypto-dashboard/1.0', ...extraHeaders };
     https
-      .get(url, { headers }, (res) => {
+      .get(url, { headers, timeout: FETCH_TIMEOUT_MS }, (res) => {
         let data = '';
         res.on('data', (c) => (data += c));
         res.on('end', () => {
@@ -17,6 +22,9 @@ function fetchJSON(url, extraHeaders = {}) {
             reject(new Error(`Bad JSON from ${url}: ${e.message}`));
           }
         });
+      })
+      .on('timeout', function () {
+        this.destroy(new Error(`Timeout fetching ${url}`));
       })
       .on('error', reject);
   });
@@ -78,6 +86,68 @@ function fetchPepperstoneOrderBook() {
 
 async function fetchPepperstoneOneShot() {
   const { bids, asks } = await fetchPepperstoneOrderBook();
+  const bid = Math.max(...bids.map((b) => +b[0]));
+  const ask = Math.min(...asks.map((a) => +a[0]));
+  return { bid, ask, last: (bid + ask) / 2 };
+}
+
+// CoinByte has no REST ticker; best bid/ask come only from its public
+// WebSocket (endpoint and protocol confirmed by CoinByte support, Nov 2026).
+// Frames are gzipped, the server pings and expects a matching pong, and like
+// Pepperstone the book fills in over the first frames — so keep the fullest.
+const COINBYTE_COLLECT_MS = 1500;
+
+function fetchCoinbyteOrderBook() {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket('wss://www.coinbyte.com.au/-/s/hbcloud/ws');
+    ws.binaryType = 'arraybuffer';
+    let best = null; // fullest frame seen (by total level count)
+    let collectTimer = null;
+    const finish = (result, err) => {
+      clearTimeout(hardTimeout);
+      clearTimeout(collectTimer);
+      try {
+        ws.close();
+      } catch {}
+      err ? reject(err) : resolve(result);
+    };
+    const hardTimeout = setTimeout(() => {
+      best ? finish(best) : finish(null, new Error('CoinByte WS timeout'));
+    }, 8000);
+    ws.addEventListener('open', () => {
+      ws.send(JSON.stringify({ sub: 'market.btcaud.depth.step0', id: '1' }));
+    });
+    ws.addEventListener('message', (e) => {
+      try {
+        const msg = JSON.parse(
+          typeof e.data === 'string'
+            ? e.data
+            : zlib.gunzipSync(Buffer.from(e.data)).toString()
+        );
+        if (msg.ping) {
+          ws.send(JSON.stringify({ pong: msg.ping }));
+          return;
+        }
+        const tick = msg.tick;
+        if (tick && tick.bids?.length && tick.asks?.length) {
+          const levels = tick.bids.length + tick.asks.length;
+          if (!best || levels > best.bids.length + best.asks.length) {
+            best = { bids: tick.bids, asks: tick.asks };
+          }
+          if (!collectTimer) {
+            collectTimer = setTimeout(() => finish(best), COINBYTE_COLLECT_MS);
+          }
+        }
+      } catch {}
+    });
+    ws.addEventListener('error', () => {
+      finish(null, new Error('CoinByte WS error'));
+    });
+  });
+}
+
+async function fetchCoinbyteOneShot() {
+  const { bids, asks } = await fetchCoinbyteOrderBook();
   const bid = Math.max(...bids.map((b) => +b[0]));
   const ask = Math.min(...asks.map((a) => +a[0]));
   return { bid, ask, last: (bid + ask) / 2 };
@@ -218,6 +288,17 @@ const exchanges = {
         'https://api.btcmarkets.net/v3/markets/BTC-AUD/orderbook?level=2'
       );
       return normalizeDepth(r.bids, r.asks);
+    },
+  },
+  coinbyte: {
+    label: 'CoinByte',
+    note: 'Order book top (WebSocket) — 0.10% taker',
+    takerFeeBps: 10,
+    feeBakedIn: false,
+    fetch: fetchCoinbyteOneShot,
+    depthFetch: async () => {
+      const { bids, asks } = await fetchCoinbyteOrderBook();
+      return normalizeDepth(bids, asks);
     },
   },
   coinjar: {
@@ -445,11 +526,13 @@ function walkBookAvg(asks, sizeAud) {
 
 // Effective (fee-inclusive) price to buy `sizeAud` worth: walk the book when
 // depth is available, otherwise fall back to the top-of-book effective price.
+// Returns null when the book is too thin to fill the size — falling back to
+// top of book there would rank a venue as cheap for an order it can't fill.
 function effectiveForSize(ex, quote, depthAsks, sizeAud) {
   if (ex.feeBakedIn) return quote.effectiveAsk; // spread-inclusive; size-agnostic
   if (depthAsks && depthAsks.length) {
     const avg = walkBookAvg(depthAsks, sizeAud);
-    if (avg) return avg * (1 + currentFeeBps(ex) / 10_000);
+    return avg ? avg * (1 + currentFeeBps(ex) / 10_000) : null;
   }
   return quote.effectiveAsk;
 }
@@ -460,6 +543,7 @@ const LOGOS = {
   digitalsurge: 'digital surge.png',
   independentreserve: 'independent reserve.svg',
   btcmarkets: 'btc markets.png',
+  coinbyte: 'coinbyte.png',
   coinjar: 'coinjar.png',
   kraken: 'kraken pro.png',
   krakeninstant: 'kraken.png',
