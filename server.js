@@ -30,71 +30,10 @@ function fetchJSON(url, extraHeaders = {}) {
   });
 }
 
-// Pepperstone publishes its order book over WebSocket, and the first frame can
-// be partial (it fills in over the next ~second). To avoid under-representing
-// depth, we collect frames for a short window after the first one and return
-// the fullest single frame (most levels) — a consistent point-in-time book.
-const PEPPERSTONE_COLLECT_MS = 1500;
-
-function fetchPepperstoneOrderBook() {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket('wss://nodes.pepperstonecrypto.com/ws');
-    let best = null; // fullest frame seen (by total level count)
-    let collectTimer = null;
-    const finish = (result, err) => {
-      clearTimeout(hardTimeout);
-      clearTimeout(collectTimer);
-      try {
-        ws.close();
-      } catch {}
-      err ? reject(err) : resolve(result);
-    };
-    const hardTimeout = setTimeout(() => {
-      best ? finish(best) : finish(null, new Error('Pepperstone WS timeout'));
-    }, 8000);
-    ws.addEventListener('open', () => {
-      ws.send(
-        JSON.stringify({ method: 'subscribe', events: ['OB.BTC_AUD'] })
-      );
-    });
-    ws.addEventListener('message', (e) => {
-      try {
-        const msg = JSON.parse(e.data);
-        if (
-          msg.method === 'stream' &&
-          msg.event === 'OB.BTC_AUD' &&
-          msg.data &&
-          msg.data.bids?.length &&
-          msg.data.asks?.length
-        ) {
-          const levels = msg.data.bids.length + msg.data.asks.length;
-          if (!best || levels > best.bids.length + best.asks.length) {
-            best = { bids: msg.data.bids, asks: msg.data.asks };
-          }
-          // Once the first frame arrives, keep the fullest for a short window.
-          if (!collectTimer) {
-            collectTimer = setTimeout(() => finish(best), PEPPERSTONE_COLLECT_MS);
-          }
-        }
-      } catch {}
-    });
-    ws.addEventListener('error', () => {
-      finish(null, new Error('Pepperstone WS error'));
-    });
-  });
-}
-
-async function fetchPepperstoneOneShot() {
-  const { bids, asks } = await fetchPepperstoneOrderBook();
-  const bid = Math.max(...bids.map((b) => +b[0]));
-  const ask = Math.min(...asks.map((a) => +a[0]));
-  return { bid, ask, last: (bid + ask) / 2 };
-}
-
 // CoinByte has no REST ticker; best bid/ask come only from its public
 // WebSocket (endpoint and protocol confirmed by CoinByte support, Nov 2026).
-// Frames are gzipped, the server pings and expects a matching pong, and like
-// Pepperstone the book fills in over the first frames — so keep the fullest.
+// Frames are gzipped, the server pings and expects a matching pong, and the
+// book fills in over the first frames — so keep the fullest.
 const COINBYTE_COLLECT_MS = 1500;
 
 function fetchCoinbyteOrderBook() {
@@ -447,13 +386,27 @@ const exchanges = {
   },
   pepperstone: {
     label: 'Pepperstone Crypto',
-    note: 'Order book top (WebSocket)',
+    // Public OpenAPI (no key), documented at pcrypto.com/en-au/docs. Replaced
+    // the old nodes.pepperstonecrypto.com WebSocket, retired in the Oct 2026
+    // platform upgrade.
+    note: 'Order book top',
     takerFeeBps: 10,
     feeBakedIn: false,
-    fetch: fetchPepperstoneOneShot,
+    fetch: async () => {
+      const r = await fetchJSON(
+        'https://api.pcrypto.com/openapi/quote/v1/ticker/bookTicker?symbol=BTCAUD'
+      );
+      if (!r.askPrice) throw new Error(`Pepperstone: ${r.msg || 'no BTCAUD quote'}`);
+      const bid = +r.bidPrice;
+      const ask = +r.askPrice;
+      return { bid, ask, last: (bid + ask) / 2 };
+    },
     depthFetch: async () => {
-      const { bids, asks } = await fetchPepperstoneOrderBook();
-      return normalizeDepth(bids, asks);
+      const r = await fetchJSON(
+        'https://api.pcrypto.com/openapi/quote/v1/depth?symbol=BTCAUD&limit=200'
+      );
+      if (!r.asks) throw new Error(`Pepperstone depth: ${r.msg || 'no book'}`);
+      return normalizeDepth(r.bids, r.asks);
     },
   },
   swyftx: {
